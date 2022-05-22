@@ -42,7 +42,7 @@ REORG_DEF = 1.0 # eV
 # Gamma should now be called k_{0}^{MHC} or k_{0}^{BV}, depending on the ET theory used
 # The units are s^-1, and the range is (1e-2 - 1e4 s^-1)
 # Should default to zero when adsorption is turned on 
-GAMMA_DEF = 1e-2
+GAMMA_DEF = 1e2
 TEMP_DEF =  298.
 KT_DEF = 3.18e-6 * TEMP_DEF
 # Alpha for BV ET
@@ -1091,13 +1091,9 @@ class MyDialog(tkd.Dialog, object):
         if expression == "MHC":
             self.reorg_label.grid()
             self.reorg_in.grid()
-            self.gamma_label.grid_remove()
-            self.gamma_in.grid_remove()
             self.alpha_label.grid_remove()
             self.e6.grid_remove()
         else:
-            self.gamma_label.grid()
-            self.gamma_in.grid()
             self.alpha_label.grid()
             self.e6.grid()
             self.reorg_label.grid_remove()
