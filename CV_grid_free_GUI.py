@@ -4,7 +4,9 @@ import scipy.integrate as integrate
 import scipy
 import socket, resource, ast
 import argparse
-from CV_grid_free_no_ads import CV_No_Ads
+import warnings
+
+# warnings.filterwarnings("ignore")
 
 # Alternative imports for python 2.x and python 3.x respectively
 try:
@@ -21,31 +23,48 @@ except ImportError:
 import matplotlib
 import matplotlib.pyplot as plt
 
-matplotlib.rcParams.update({'font.size': 24})
+# matplotlib.rcParams.update({'font.size': 24})
 
 # Default values
 # Frumkin param. defaults
+# Range for each should be (-0.002 to 0.002)
 G_FRUM_A_DEF = 0
 G_FRUM_B_DEF = 0
 # Temkin param defaults (not yet supported)
 COV_DEF = 0.6
 CHAR_DEF = 1e-10
 
-OMEGA_DEF = 0.0002347
-GAMMA_DEF = 0
-KT_DEF = 0.00095
+# User should now enter reorg instead of omega, units of reorg are eV and should have symbol $\lambda$
+# Range of reorg is (0.1-2.0 eV). Should only be entered for MH
+REORG_DEF = 1.0 # eV
+# Gamma should now be called k_{0}^{MHC} or k_{0}^{BV}, depending on the ET theory used
+# The units are s^-1, and the range is (1e-2 - 1e4 s^-1)
+# Should default to zero when adsorption is turned on 
+GAMMA_DEF = 1e-2
+TEMP_DEF =  298.
+KT_DEF = 3.18e-6 * TEMP_DEF
 # Alpha for BV ET
 ALPHA_DEF = .5
-SCAN_RATE_DEF = 1.0
+#scan_rate is in units of V/sec, and user should be entering value for scan_temp. The symbol for scan_rate in the GUI should be $\nu$
+#range of scan_rate is (0.0001 - 1e4) V/sec
+SCAN_TEMP_DEF = 1
+SCAN_RATE_DEF = SCAN_TEMP_DEF / 27.211
 TIME_STEPS_DEF = 401
+#Gamma_s is normalized saturated surface concentration, Gamma_ads is coupling for adsorbed ET
+#Gamma_s range is (0 - 1), and should be shown in GUI as $\Gamma_{s}$
+#Gamma_ads range is (1e-2 to 1e4), and should be shown in GUIT as $\k_{0}^{ads}$. Units of Gamma_ads are s^{-1}
 GAMMA_S_DEF = 1.0
 GAMMA_ADS_DEF = 1e4
-K_ADS_A_DEF = .01
-K_ADS_B_DEF = .01
-K_DES_A_DEF = .01
-K_DES_B_DEF = .01
-P_START_DEF = .02
-P_END_DEF = -.02
+#k_ads range is (1e-2, 1e2), with units of s^{-1}
+K_ADS_DEF = 1e0
+K_ADS_A_DEF = K_ADS_DEF
+K_ADS_B_DEF = K_ADS_DEF
+K_DES_A_DEF = K_ADS_DEF
+K_DES_B_DEF = K_ADS_DEF
+#P_list are the driving forces/voltages; user will enter V_start and V_end (in GUI as V_{start} and V_{end})
+#No range needed
+V_START_DEF = 1.0
+V_END_DEF = -1.0
 MH_DEF = False
 PLOT_T_F_DEF = True
 ISOTHERM_DEF = "Langmuir"
@@ -66,6 +85,273 @@ def find_nearest(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return idx
+
+class CV_No_Ads:
+    def __init__(self, param_dict, file=None):
+        if param_dict == None:
+            # this will read in a parameter file in .txt format that should be structured like a python dict (see example);
+            # int vs. float is important! If a value is listed above/in parameter file as int, it neeeds to be read in as int and not float
+            # may cause issues if this is violated
+            if file == None:
+                file = ""
+            try:
+                file = open(file, 'r')
+                contents = file.read()
+                param_dict = ast.literal_eval(contents)
+                for key in param_dict:
+                    if type(param_dict[key]) == int or type(param_dict[key]) == bool:
+                        exec('%s = %d' % (key, int(param_dict[key])))
+                    if type(param_dict[key]) == float:
+                        exec('%s = %f' % (key, float(param_dict[key])))
+            except IOError:
+                print('No input dict and no external parameter file: Using defaults in .py script')
+                param_dict = {}
+        elif param_dict != None and file != None:
+            print('Given file and input dict, ignoring file')
+        else:
+            print('Running simulation from dict input')
+        
+        self.reorg = param_dict.get('reorg', REORG_DEF)
+        self.Gamma = param_dict.get('gamma', GAMMA_DEF)
+        self.temp = param_dict.get('temp', TEMP_DEF)
+        self.alpha = param_dict.get('alpha', ALPHA_DEF)
+        self.scan_temp = param_dict.get('scan_temp', SCAN_TEMP_DEF)
+        self.time_steps = param_dict.get('time_steps', TIME_STEPS_DEF)
+        self.V_start = param_dict.get('v_start', V_START_DEF)
+        self.V_end = param_dict.get('v_end', V_END_DEF)
+        self.MH = param_dict.get('mh', MH_DEF)
+        self.plot_T_F = param_dict.get('plot_T_F', PLOT_T_F_DEF)
+
+        # Non-adjustable parameters
+        self.mass = MASS_DEF
+        self.y_A = 10
+        self.y_B = -10
+        self.c_A_init = 1
+        self.c_B_init = 1 - self.c_A_init
+        # D is in units of cm^{2} / sec, and has range of (1e-6,1e-4)
+        self.D = 1e-5 #5.29e-8 * 5.29e-8 / 2.42e-17
+        
+
+        #scan_rate is in units of V/sec, and user should be entering value for scan_temp. The symbol for scan_rate in the GUI should be $\nu$
+        #range of scan_rate is (0.0001 - 1e4) V/sec TODO
+        self.scan_rate = self.scan_temp / 27.211
+
+        # Calculate additional parameters
+        self.omega = np.sqrt(self.reorg / (27.211 * self.mass * 2 * self.y_A * self.y_A))
+        self.kT = 3.18e-06 * self.temp# T * 8.617e-5 / 27.211
+        self.epsilon = 1. / self.kT
+        self.P_start = self.V_start / 27.211
+        self.P_end = self.V_end / 27.211
+        self.E_0_ads = 0
+        dt = abs(self.P_start - self.P_end) / (self.time_steps * self.scan_rate)
+        ds = dt
+        self.tt = np.linspace(0, dt * self.time_steps, self.time_steps)
+        self.P_list = np.linspace(self.P_start,self. P_end, self.time_steps)
+        self.norm_A = integrate.quad(self.marg_func_A, -np.inf, np.inf)[0]
+        self.norm_B = integrate.quad(self.marg_func_B, -np.inf, np.inf, args=(self.P_start,))[0]
+        self.k_f_dict = {}
+        self.k_b_dict = {}
+        self.u_approx = np.zeros((self.time_steps))
+        self.u_approx[0] = self.c_B_init
+        self.I = np.zeros((self.time_steps))
+        self.I_rev = np.zeros((self.time_steps))
+
+        # Plotting initialization
+        if self.plot_T_F:
+            self.fig, self.ax = plt.subplots()
+            self.ax.set_xlabel("V", fontsize=24)
+            self.ax.set_ylabel("I", fontsize=24)
+            self.ax.set_title("Simulated CV (no adsorption)")
+            self.ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
+            self.ax.set_ylim(-200, 200)
+            self.fig.canvas.draw()
+            plt.show(block=False)
+            self.for_line, = self.ax.plot([], [])
+            self.rev_line, = self.ax.plot([], [])
+        else:
+            self.fig = None
+            self.ax = None
+
+    def fermi(self, y, delta_G):
+        return 1. / (1. + np.exp(self.E(y, delta_G) / self.kT))
+
+    def V_B(self, y, delta_G):
+        return 0.5 * self.mass * self.omega * self.omega * (self.y_B - y) ** 2 + delta_G
+
+    def V_A(self, y):
+        return 0.5 * self.mass * self.omega * self.omega * (self.y_A - y) ** 2
+
+    def E(self, y, delta_G):
+        return self.V_B(y, delta_G) - self.V_A(y)
+
+    def marg_func_A(self, y):
+        return np.exp(-(self.V_A(y) - self.V_A(self.y_A)) / self.kT)
+
+    def marg_func_B(self, y, delta_G):
+        return np.exp(-(self.V_B(y, delta_G) - self.V_B(self.y_B, delta_G)) / self.kT)
+
+    def delta_G_func(self, t):
+        if type(t) != type(np.array([1])):
+            result_array = np.zeros((1))
+            t_list = np.array([t])
+        else:
+            result_array = np.zeros(len(t))
+            t_list = t
+        for ii, t in enumerate(t_list):
+            if t < self.tt[-1]:
+                result_array[ii] = self.P_start - self.scan_rate * t
+            else:
+                result_array[ii] = self.P_end + self.scan_rate * (t - self.tt[-1])
+        return result_array
+
+    def delta_G_func_ads(self, t):
+        return (self.P_start - self.scan_rate * t) * (1 - int(t / self.tt[-1])) + (self.P_end + self.scan_rate * (t - self.tt[-1])) * int(t / self.tt[-1])
+
+    def find_nearest(self, array, value):
+        array = np.asarray(array)
+        idx = (np.abs(array - value)).argmin()
+        return idx
+
+    def a(self, t):
+        try:
+            if t > self.tt[-1]:
+                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
+                return self.k_func(self.delta_G_func(t), 'b') + self.k_func(self.delta_G_func(t), 'f')
+            else:
+                ind = self.find_nearest(self.tt, t)
+                return self.k_func(self.delta_G_func(t), 'b') + self.k_func(self.delta_G_func(t), 'f')
+        except ValueError:
+            return self.k_func(self.delta_G_func(t), 'b') + self.k_func(self.delta_G_func(t), 'f')
+
+    def b(self, t, c_A_temp):
+        try:
+            if t > self.tt[-1]:
+                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
+                return self.k_func(self.delta_G_func(t), 'f')
+            else:
+                ind = self.find_nearest(self.tt, t)
+                return self.k_func(self.delta_G_func(t), 'f')
+        except ValueError:
+            return self.k_func(self.delta_G_func(t), 'f')
+
+    def int_func_A(self, y, *args):
+        delta_G = args[0]
+        return self.marg_func_A(y) * self.fermi(y, delta_G)
+
+    def int_func_B(self, y, *args):
+        delta_G = args[0]
+        return self.marg_func_B(y, delta_G) * (1. - self.fermi(y, delta_G))
+
+    def int_func_A_ds(self, y, *args):
+        delta_G = args[0]
+        return self.marg_func_A(y) * self.fermi(y, delta_G) * (1. - self.fermi(y, delta_G))
+
+    def int_func_B_ds(self, y, *args):
+        delta_G = args[0]
+        return self.marg_func_B(y, delta_G) * (1. - self.fermi(y, delta_G)) * self.fermi(y, delta_G)
+
+    def k_func(self, energy, dir):
+        if type(energy) != type(np.array([1])):
+            result_array = np.zeros((1))
+            energy_list = np.array([energy])
+        else:
+            result_array = np.zeros(len(energy))
+            energy_list = energy
+        for ii, energy in enumerate(energy_list):
+            if dir == 'f':
+                if self.MH:
+                    if energy in self.k_f_dict:
+                        result_array[ii] = self.k_f_dict[energy]
+                    else:
+                        self.k_f_dict[energy] = np.longdouble(self.Gamma * integrate.quad(self.int_func_A, -np.inf, np.inf, args=(energy,))[0] / self.norm_A)
+                        result_array[ii] = self.k_f_dict[energy]
+                else:
+                    result_array[ii] = self.Gamma * np.longdouble(np.exp(-self.alpha * self.epsilon * energy))
+            if dir == 'b':
+                if self.MH:
+                    if energy in self.k_b_dict:
+                        result_array[ii] = self.k_b_dict[energy]
+                    else:
+                        self.k_b_dict[energy] = np.longdouble(self.Gamma * integrate.quad(self.int_func_A, -np.inf, np.inf, args=(energy,))[0] / self.norm_A) * np.exp(energy / self.kT)
+                        result_array[ii] = self.k_b_dict[energy]
+                else:
+                    result_array[ii] = self.Gamma * np.longdouble(np.exp((1. - self.alpha) * self.epsilon * energy))
+        if len(result_array) == 1:
+            return result_array[0]
+        else:
+            return result_array
+
+    def dk_func_ds(self, energy, dir):
+        if dir == 'f':
+            if self.MH:
+                return self.epsilon * self.scan_rate * self.Gamma * integrate.quad(self.int_func_A_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(self.marg_func_A, -np.inf, np.inf)[0])
+            else:
+                return self.Gamma * np.longdouble(np.exp(-self.alpha * self.epsilon * energy)) * (self.scan_rate * self.alpha * self.epsilon)
+        if dir == 'b':
+            if self.MH:
+                return (self.epsilon * self.scan_rate * self.Gamma * integrate.quad(self.int_func_A_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(self.marg_func_A, -np.inf, np.inf)[0]) + np.longdouble(self.Gamma * integrate.quad(self.int_func_A, -np.inf, np.inf, args=(energy,))[0] / self.norm_A) * -self.scan_rate * self.epsilon) * np.exp(energy / self.kT)
+                return -epsilon * scan_rate * Gamma * integrate.quad(self.int_func_B_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(marg_func_B, -np.inf, np.inf, args=(energy,))[0])
+            else:
+                return self.Gamma * np.longdouble(np.exp((1. - self.alpha) * self.epsilon * energy)) * (-self.scan_rate * (1. - self.alpha) * self.epsilon)
+
+    def exact_approx(self, u, tt):
+        ds = tt[1] - tt[0]
+        t = tt[-1]
+        u = np.array(u)
+        v = 1. - u
+        return np.longdouble((np.sqrt(self.D * np.pi) - self.a(t) * (ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1) * np.longdouble(ds * (np.sum((-self.a(tt[1:-1]) * u[1:] + self.b(tt[1:-1], v[:-1]) - self.b(t, v[-1])) / np.sqrt(t - tt[1:-1])) + 0.5 * (self.b(0, v[0]) - self.b(t, v[-1])) / np.sqrt(t)) + 2. * self.b(t, v[-1]) * np.sqrt(t) + self.c_B_init * np.sqrt(self.D * np.pi)).flatten()[0]
+    
+    def run(self):
+        for ii in range(1, self.time_steps):
+            self.u_approx[ii] = self.exact_approx(self.u_approx[:ii], self.tt[:ii + 1])
+            self.I[ii] = self.k_func(self.delta_G_func(self.tt[ii]), 'f') * (1. - self.u_approx[ii]) - self.k_func(self.delta_G_func(self.tt[ii]), 'b') * self.u_approx[ii]
+            if ii % 50 == 0:
+                print('Done with time step ', ii, 'of ', self.time_steps)#'iter_steps, c_B, Gamma_A, Gamma_B = ',  u_approx[ii])
+                if self.plot_T_F:
+                    self.plot()
+
+        u_approx_rev = np.zeros((self.time_steps))
+        u_approx_rev[0] = self.u_approx[-1]
+        self.I_rev[0] = self.I[-1]
+
+        for ii in range(1, self.time_steps):
+            if u_approx_rev[ii-1] > 1 or u_approx_rev[ii-1] < 0:
+                sys.exit()
+            u_approx_rev[ii] = self.exact_approx(np.concatenate((self.u_approx, u_approx_rev[:ii])), np.concatenate((self.tt, self.tt[-1] + self.tt[:ii + 1])))
+            if u_approx_rev [ii] == np.nan:
+                print(u_approx_rev[ii])
+                sys.exit()
+                u_approx_rev[ii] == 1
+            if ii == self.time_steps - 1:
+                self.I_rev[ii] = self.k_func(self.delta_G_func(0), 'f') * (1. - u_approx_rev[ii]) - self.k_func(self.delta_G_func(0), 'b') * u_approx_rev[ii]
+            else:
+                self.I_rev[ii] = self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'f') * (1. - u_approx_rev[ii]) - self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'b') * u_approx_rev[ii]
+            if ii % 50 == 0:
+                print('Done with time step ', ii, 'of ', self.time_steps)#'iter_steps, c_B, Gamma_A, Gamma_B = ', u_approx_rev[ii])
+                if self.plot_T_F:
+                    self.plot()
+        
+        if self.plot_T_F:
+            self.plot()
+            # fig, ax = plt.subplots()
+            # ax.plot(self.P_list, self.I, label='sol', color='b')
+            # ax.set_xlim(self.P_start * 0.99, self.P_end * 0.99)
+            # ax.plot(self.P_list[::-1], self.I_rev, label='sol_rev', color='r')
+            plt.show()
+        
+    
+    def plot(self):
+        #pyplot.figure((8,8))
+        self.for_line.set_data(self.P_list * 27.211, self.I)
+        ylim_max = max(self.I)*1.1
+        y_lim_min = min(self.I_rev)*1.1
+        self.ax.set_ylim(-max(ylim_max, abs(y_lim_min)), ylim_max)
+        self.rev_line.set_data(self.P_list[::-1] * 27.211, self.I_rev)
+        self.fig.canvas.draw()
+        try:
+            self.fig.canvas.flush_events()
+        except:
+            plt.pause(1e-10)
 
 class CV_Simulator():
     def __init__(self, param_dict, file=None):
@@ -96,9 +382,9 @@ class CV_Simulator():
         self.g_frum_b = param_dict.get('g_frum_b', G_FRUM_B_DEF)
         self.cov = param_dict.get('cov', COV_DEF)
         self.char = param_dict.get('char', CHAR_DEF)
-        self.omega = param_dict.get('omega', OMEGA_DEF)
+        self.reorg = param_dict.get('reorg', REORG_DEF)
         self.gamma = param_dict.get('gamma', GAMMA_DEF)
-        self.kT = param_dict.get('kT', KT_DEF)
+        self.temp = param_dict.get('temp', TEMP_DEF)
         self.alpha = param_dict.get('alpha', ALPHA_DEF)
         self.scan_rate = param_dict.get('scan_rate', SCAN_RATE_DEF)
         self.time_steps = param_dict.get('time_steps', TIME_STEPS_DEF)
@@ -108,12 +394,13 @@ class CV_Simulator():
         self.k_ads_b = param_dict.get('k_ads_b', K_ADS_B_DEF)
         self.k_des_a = param_dict.get('k_des_a', K_DES_A_DEF)
         self.k_des_b = param_dict.get('k_des_b', K_DES_B_DEF)
-        self.p_start = param_dict.get('p_start', P_START_DEF)
-        self.p_end = param_dict.get('p_end', P_END_DEF)
+        self.v_start = param_dict.get('v_start', V_START_DEF)
+        self.v_end = param_dict.get('v_end', V_END_DEF)
         self.mh = param_dict.get('mh', MH_DEF)
         self.plot_T_F = param_dict.get('plot_T_F', PLOT_T_F_DEF)
 
         # Compute additional parameters
+        self.kT = 3.18e-06 * self.temp# T * 8.617e-5 / 27.211
         self.epsilon = 1. / self.kT
 
         # Non-adjustable parameters (Add to gui/ read in if needed down the line)
@@ -121,8 +408,10 @@ class CV_Simulator():
         self.mass = MASS_DEF
         self.y_A = 10
         self.y_B = -10
+        # D is in units of cm^{2} / sec, and has range of (1e-6,1e-4)
         self.D = 1e-5
         self.E_0_ads = E_0_ADS_DEF
+        self.omega = np.sqrt(self.reorg / (27.211 * self.mass * 2 * self.y_A * self.y_A))
 
         # Initialize other values
         self.tt = None
@@ -136,6 +425,8 @@ class CV_Simulator():
         self.k_b_dict = {}
         self.k_f_dict_ads = {}
         self.k_b_dict_ads = {}
+        self.p_start = self.v_start / 27.211
+        self.p_end = self.v_end / 27.211
         self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps)
         self.I = np.zeros((self.time_steps))
         self.I_ads = np.zeros((self.time_steps))
@@ -145,10 +436,10 @@ class CV_Simulator():
         # Plotting initialization
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
-            self.ax.set_xlabel("V")
-            self.ax.set_ylabel("I/A")
+            self.ax.set_xlabel("V", fontsize=24)
+            self.ax.set_ylabel("I", fontsize=24)
             self.ax.set_title("Simulated CV")
-            self.ax.set_xlim(self.p_end, self.p_start)
+            self.ax.set_xlim(self.p_end * 27.211, self.p_start * 27.211)
             self.ax.set_ylim(-200, 200)
             self.fig.canvas.draw()
             plt.show(block=False)
@@ -510,10 +801,11 @@ class CV_Simulator():
 
     def plot(self):
         #pyplot.figure((8,8))
-        self.for_line.set_data(self.p_list, self.I + self.I_ads)
-        ylim = max(self.I + self.I_ads)*1.1
-        self.ax.set_ylim(-ylim, ylim)
-        self.rev_line.set_data(self.p_list[::-1], self.I_rev + self.I_ads_rev)
+        self.for_line.set_data(self.p_list * 27.211, self.I + self.I_ads)
+        ylim_max = max(self.I + self.I_ads)*1.1
+        y_lim_min = min(self.I_rev + self.I_ads_rev)*1.1
+        self.ax.set_ylim(-max(ylim_max, abs(y_lim_min)), ylim_max)
+        self.rev_line.set_data(self.p_list[::-1] * 27.211, self.I_rev + self.I_ads_rev)
         self.fig.canvas.draw()
         try:
             self.fig.canvas.flush_events()
@@ -545,22 +837,22 @@ class MyDialog(tkd.Dialog, object):
         left_column.grid(row=0, column=0, columnspan=2, sticky='new')
         left_param_background = tk.Frame(left_column, bg='blue', padx=3, pady=3)
         self.left_param_frame = tk.Frame(left_param_background, padx=10, pady=10)
-        self.e3 = tk.Entry(self.left_param_frame)
-        self.e3.insert(0, OMEGA_DEF)
-        self.e4 = tk.Entry(self.left_param_frame)
-        self.e4.insert(0, GAMMA_DEF)
-        self.e5 = tk.Entry(self.left_param_frame)
-        self.e5.insert(0, KT_DEF)
+        self.reorg_in = tk.Entry(self.left_param_frame)
+        self.reorg_in.insert(0, REORG_DEF)
+        self.gamma_in = tk.Entry(self.left_param_frame)
+        self.gamma_in.insert(0, GAMMA_DEF)
+        self.temp_in = tk.Entry(self.left_param_frame)
+        self.temp_in.insert(0, TEMP_DEF)
         self.e6 = tk.Entry(self.left_param_frame)
         self.e6.insert(0, ALPHA_DEF)
-        self.e7 = tk.Entry(self.left_param_frame)
-        self.e7.insert(0, SCAN_RATE_DEF)
+        self.scan_temp_in = tk.Entry(self.left_param_frame)
+        self.scan_temp_in.insert(0, SCAN_TEMP_DEF)
         self.e8 = tk.Entry(self.left_param_frame)
         self.e8.insert(0, TIME_STEPS_DEF)
-        self.e16 = tk.Entry(self.left_param_frame)
-        self.e16.insert(0, P_START_DEF)
-        self.e17 = tk.Entry(self.left_param_frame)
-        self.e17.insert(0, P_END_DEF)
+        self.v_start_in = tk.Entry(self.left_param_frame)
+        self.v_start_in.insert(0, V_START_DEF)
+        self.v_end_in = tk.Entry(self.left_param_frame)
+        self.v_end_in.insert(0, V_END_DEF)
 
         self.left_param_frame.pack()
         left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
@@ -569,22 +861,22 @@ class MyDialog(tkd.Dialog, object):
         self.gamma_label.grid(row=1)
         self.alpha_label = tk.Label(self.left_param_frame, text="alpha (unit):")
         self.alpha_label.grid(row=2)
-        self.omega_label = tk.Label(self.left_param_frame, text="omega (unit):")
-        self.omega_label.grid(row=3)
-        tk.Label(self.left_param_frame, text="kT (J):").grid(row=4)
-        tk.Label(self.left_param_frame, text="scan rate (V/s):").grid(row=5)
+        self.reorg_label = tk.Label(self.left_param_frame, text=r"\lambda (eV):")
+        self.reorg_label.grid(row=3)
+        tk.Label(self.left_param_frame, text="Temperature (K):").grid(row=4)
+        tk.Label(self.left_param_frame, text=r"{\nu}:").grid(row=5)
         tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
-        tk.Label(self.left_param_frame, text="P_start (V):").grid(row=7)
-        tk.Label(self.left_param_frame, text="P_end (V):").grid(row=8)
+        tk.Label(self.left_param_frame, text="V_start (V):").grid(row=7)
+        tk.Label(self.left_param_frame, text="V_end (V):").grid(row=8)
 
-        self.e4.grid(row=1, column=1)
+        self.gamma_in.grid(row=1, column=1)
         self.e6.grid(row=2, column=1)
-        self.e3.grid(row=3, column=1)
-        self.e5.grid(row=4, column=1)
-        self.e7.grid(row=5, column=1)
+        self.reorg_in.grid(row=3, column=1)
+        self.temp_in.grid(row=4, column=1)
+        self.scan_temp_in.grid(row=5, column=1)
         self.e8.grid(row=6, column=1)
-        self.e16.grid(row=7, column=1)
-        self.e17.grid(row=8, column=1)
+        self.v_start_in.grid(row=7, column=1)
+        self.v_end_in.grid(row=8, column=1)
 
         mhc_frame = tk.Frame(self.left_param_frame, pady=10)
         r_mhc = tk.Radiobutton(mhc_frame, text="MHC", variable=self.use_MH, value=1, justify='left', command=lambda: self.handle_rate_select("MHC"))
@@ -758,6 +1050,8 @@ class MyDialog(tkd.Dialog, object):
             self.r2['state'] = 'disabled'
             self.e1['state'] = 'disabled'
             self.e2['state'] = 'disabled'
+
+            self.gamma_in['state'] = 'normal'
         else:
             self.e9['state'] = 'normal'
             self.e10['state'] = 'normal'
@@ -770,22 +1064,26 @@ class MyDialog(tkd.Dialog, object):
             self.r2['state'] = 'normal'
             self.e1['state'] = 'normal'
             self.e2['state'] = 'normal'
+
+            self.gamma_in.delete(0, tk.END)
+            self.gamma_in.insert(0, '0')
+            self.gamma_in['state'] = 'disabled'
     
     def handle_rate_select(self, expression):
         if expression == "MHC":
-            self.omega_label.grid()
-            self.e3.grid()
+            self.reorg_label.grid()
+            self.reorg_in.grid()
             self.gamma_label.grid_remove()
-            self.e4.grid_remove()
+            self.gamma_in.grid_remove()
             self.alpha_label.grid_remove()
             self.e6.grid_remove()
         else:
             self.gamma_label.grid()
-            self.e4.grid()
+            self.gamma_in.grid()
             self.alpha_label.grid()
             self.e6.grid()
-            self.omega_label.grid_remove()
-            self.e3.grid_remove()
+            self.reorg_label.grid_remove()
+            self.reorg_in.grid_remove()
 
 
     def show_help(self):
@@ -849,18 +1147,18 @@ class MyDialog(tkd.Dialog, object):
     def apply(self):
         param_dict = {}
         # Optionally set parameters from selected isotherm
-        if self.isotherm.get() == 'frumkin':
+        if self.isotherm.get() == 'Frumkin':
             param_dict['g_frum_a'] = float(self.e1.get())
             param_dict['g_frum_b'] = float(self.e2.get())
-        elif self.isotherm.get() == 'temkin':
+        elif self.isotherm.get() == 'Temkin':
             param_dict['cov'] = float(self.e1.get())
             param_dict['char'] = float(self.e2.get())
 
-        param_dict['omega'] = float(self.e3.get())
-        param_dict['gamma'] = float(self.e4.get())
-        param_dict['kT'] = float(self.e5.get())
+        param_dict['reorg'] = float(self.reorg_in.get())
+        param_dict['gamma'] = float(self.gamma_in.get())
+        param_dict['temp'] = float(self.temp_in.get())
         param_dict['alpha'] = float(self.e6.get())
-        param_dict['scan_rate'] = float(self.e7.get())
+        param_dict['scan_temp'] = float(self.scan_temp_in.get())
         param_dict['time_steps'] = int(self.e8.get())
         param_dict['gamma_s'] = float(self.e9.get())
         param_dict['gamma_ads'] = float(self.e10.get())
@@ -868,8 +1166,8 @@ class MyDialog(tkd.Dialog, object):
         param_dict['k_ads_b'] = float(self.e13.get())
         param_dict['k_des_a'] = float(self.e14.get())
         param_dict['k_des_b'] = float(self.e15.get())
-        param_dict['p_start'] = float(self.e16.get())
-        param_dict['p_end'] = float(self.e17.get())
+        param_dict['v_start'] = float(self.v_start_in.get())
+        param_dict['v_end'] = float(self.v_end_in.get())
         param_dict['mh'] = bool(int(self.use_MH.get()))
         param_dict['plot_T_F'] = bool(PLOT_T_F_DEF)
         param_dict['isotherm'] = self.isotherm.get()
@@ -883,17 +1181,7 @@ class MyDialog(tkd.Dialog, object):
             if sim.plot_T_F:
                 sim.plot()
         else:
-            sim = CV_No_Ads(param_dict['plot_T_F'])
-            sim.omega = param_dict['omega']
-            sim.Gamma = param_dict['gamma']
-            sim.kT = param_dict['kT']
-            sim.alpha = param_dict['alpha']
-            sim.scan_rate = param_dict['scan_rate']
-            sim.time_steps = param_dict['time_steps']
-            sim.P_start = param_dict['p_start']
-            sim.P_end = param_dict['p_end']
-            sim.MH = param_dict['mh']
-
+            sim = CV_No_Ads(param_dict)
             sim.run()
 
             if sim.plot_T_F:
