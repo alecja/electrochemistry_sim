@@ -6,7 +6,7 @@ import socket, resource, ast
 import argparse
 import warnings
 
-# warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore")
 
 # Alternative imports for python 2.x and python 3.x respectively
 try:
@@ -691,7 +691,6 @@ class CV_Simulator():
         max_steps_uv = 3
 
         start_time = time.time()
-        print('Gamma = ', self.gamma, ', omega = ', self.omega)
         rr.set_initial_value([self.gamma_a[0], self.gamma_b[0]], 0.)
         for ii in range(1, self.time_steps):
             self.gamma_a[ii] = self.gamma_a[ii - 1]
@@ -735,7 +734,7 @@ class CV_Simulator():
             if ii % 50 == 0:
                 if self.plot_T_F:
                     self.plot()
-                print('Done with time step ', ii, 'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], self.gamma_a[ii], self.gamma_b[ii])
+                print('Done with time step ', ii, 'of ', self.time_steps) #'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], self.gamma_a[ii], self.gamma_b[ii])
 
         self.gamma_a_rev[0] = self.gamma_a[-1]
         self.gamma_b_rev[0] = self.gamma_b[-1]
@@ -793,7 +792,7 @@ class CV_Simulator():
             if ii % 50 == 0:
                 if self.plot_T_F:
                     self.plot()
-                print('Done with time step ', ii, 'iter_steps, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii])
+                print('Done with time step ', ii, 'of ', self.time_steps)# , 'iter_steps, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii])
 
         if self.plot_T_F:
             self.plot()
@@ -857,14 +856,14 @@ class MyDialog(tkd.Dialog, object):
         self.left_param_frame.pack()
         left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
         tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=0, sticky="E")
-        self.gamma_label = tk.Label(self.left_param_frame, text="k\u2080 (s\u207b\u00B9)):")
+        self.gamma_label = tk.Label(self.left_param_frame, text=u"k\u2080 (s\u207b\u00B9)):")
         self.gamma_label.grid(row=1)
-        self.alpha_label = tk.Label(self.left_param_frame, text="\u03b1:")
+        self.alpha_label = tk.Label(self.left_param_frame, text=u"\u03B1:")
         self.alpha_label.grid(row=2)
-        self.reorg_label = tk.Label(self.left_param_frame, text="\u03bb (eV):")
+        self.reorg_label = tk.Label(self.left_param_frame, text=u"\u03bb (eV):")
         self.reorg_label.grid(row=3)
         tk.Label(self.left_param_frame, text="Temperature (K):").grid(row=4)
-        tk.Label(self.left_param_frame, text="\u03bd (V/s):").grid(row=5)
+        tk.Label(self.left_param_frame, text=u"\u03bd (V/s):").grid(row=5)
         tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
         tk.Label(self.left_param_frame, text="V_start (V):").grid(row=7)
         tk.Label(self.left_param_frame, text="V_end (V):").grid(row=8)
@@ -879,8 +878,8 @@ class MyDialog(tkd.Dialog, object):
         self.v_end_in.grid(row=8, column=1)
 
         mhc_frame = tk.Frame(self.left_param_frame, pady=10)
-        r_mhc = tk.Radiobutton(mhc_frame, text="MHC", variable=self.use_MH, value=1, justify='left', command=lambda: self.handle_rate_select("MHC"))
-        r_bv = tk.Radiobutton(mhc_frame, text="BV", variable=self.use_MH, value=0, justify='left', command=lambda: self.handle_rate_select("BV"))
+        r_mhc = tk.Radiobutton(mhc_frame, text="Marcus-Hush-Chidsey", variable=self.use_MH, value=1, justify='left', command=lambda: self.handle_rate_select("MHC"))
+        r_bv = tk.Radiobutton(mhc_frame, text="Butler-Volmer", variable=self.use_MH, value=0, justify='left', command=lambda: self.handle_rate_select("BV"))
         r_mhc.pack()
         r_bv.pack()
         if MH_DEF:
@@ -900,7 +899,7 @@ class MyDialog(tkd.Dialog, object):
         right_adsorb_background.grid(row=0, column=0, sticky="new")
         self.right_adsorb_frame.pack()
         tk.Label(self.right_adsorb_frame, text="Gamma_s (1/A):").grid(row=1, column=0)
-        tk.Label(self.right_adsorb_frame, text="Gamma_ads (s\u207b\u00B9):").grid(row=2, column=0)
+        tk.Label(self.right_adsorb_frame, text=u"Gamma_ads (s\u207b\u00B9):").grid(row=2, column=0)
         tk.Label(self.right_adsorb_frame, text="k_ads_a (1/s):").grid(row=3, column=0)
         tk.Label(self.right_adsorb_frame, text="k_ads_b (1/s):").grid(row=4, column=0)
         tk.Label(self.right_adsorb_frame, text="k_des_a (1/s):").grid(row=5, column=0)
@@ -1106,13 +1105,13 @@ class MyDialog(tkd.Dialog, object):
         parameters_body = tk.Text(help_window, wrap=tk.WORD, spacing3=15, height=16, padx=10)
         parameters_body.tag_configure("subscript", offset=-4, font=('Serif', 6))
         parameters_body.insert("insert", "- Isotherm: adsorption isotherm model to use in simulation. Langmuir has no parameters. Frumkin and Temkin both have two. For more information on adsorption isotherms, see https://en.wikipedia.org/wiki/Adsorption#Langmuir. For more information on available isotherms, see above paper.\n")
-        parameters_body.insert("insert", "- \u03A9: Omega description here\n")
-        parameters_body.insert("insert", "- \u0393: Gamma description here\n")
-        parameters_body.insert("insert", "- \u03B1: Charge transfer coefficient for Butler-Volmer (BV) dynamics\n")
+        parameters_body.insert("insert", u"- \u03A9: Omega description here\n")
+        parameters_body.insert("insert", u"- \u0393: Gamma description here\n")
+        parameters_body.insert("insert", u"- \u03B1: Charge transfer coefficient for Butler-Volmer (BV) dynamics\n")
         parameters_body.insert("insert", "- scan rate: Rate at which simulated potential is ramped\n")
         parameters_body.insert("insert", "- time steps: Number of time steps in the forward and backward direction. Should be N + 1, where N is the desired number of steps (due to the structure of the code)\n")
-        parameters_body.insert("insert", "- \u0393\u209B: Saturated surface concentration\n")
-        parameters_body.insert("insert", "- \u0393")
+        parameters_body.insert("insert", u"- \u0393\u209B: Saturated surface concentration\n")
+        parameters_body.insert("insert", u"- \u0393")
         parameters_body.insert("insert", "ads", "subscript")
         parameters_body.insert("insert", ": Coupling for adsorbed electron transfer\n")
         parameters_body.insert("insert", "- k")
