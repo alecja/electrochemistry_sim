@@ -1,10 +1,10 @@
 import os, sys, math, time
-from turtle import right
 import numpy as np
 import scipy.integrate as integrate
 import scipy
 import socket, resource, ast
 import argparse
+from CV_grid_free_no_ads import CV_No_Ads
 
 # Alternative imports for python 2.x and python 3.x respectively
 try:
@@ -562,37 +562,43 @@ class MyDialog(tkd.Dialog, object):
         self.e17 = tk.Entry(self.left_param_frame)
         self.e17.insert(0, P_END_DEF)
 
-        mhc_frame = tk.Frame(self.left_param_frame)
-        r_mhc = tk.Radiobutton(mhc_frame, text="MHC", variable=self.use_MH, value=1, justify='left')
-        r_bv = tk.Radiobutton(mhc_frame, text="BV", variable=self.use_MH, value=0, justify='left')
+        self.left_param_frame.pack()
+        left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
+        tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=0, sticky="E")
+        self.gamma_label = tk.Label(self.left_param_frame, text="Gamma (unit):")
+        self.gamma_label.grid(row=1)
+        self.alpha_label = tk.Label(self.left_param_frame, text="alpha (unit):")
+        self.alpha_label.grid(row=2)
+        self.omega_label = tk.Label(self.left_param_frame, text="omega (unit):")
+        self.omega_label.grid(row=3)
+        tk.Label(self.left_param_frame, text="kT (J):").grid(row=4)
+        tk.Label(self.left_param_frame, text="scan rate (V/s):").grid(row=5)
+        tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
+        tk.Label(self.left_param_frame, text="P_start (V):").grid(row=7)
+        tk.Label(self.left_param_frame, text="P_end (V):").grid(row=8)
+
+        self.e4.grid(row=1, column=1)
+        self.e6.grid(row=2, column=1)
+        self.e3.grid(row=3, column=1)
+        self.e5.grid(row=4, column=1)
+        self.e7.grid(row=5, column=1)
+        self.e8.grid(row=6, column=1)
+        self.e16.grid(row=7, column=1)
+        self.e17.grid(row=8, column=1)
+
+        mhc_frame = tk.Frame(self.left_param_frame, pady=10)
+        r_mhc = tk.Radiobutton(mhc_frame, text="MHC", variable=self.use_MH, value=1, justify='left', command=lambda: self.handle_rate_select("MHC"))
+        r_bv = tk.Radiobutton(mhc_frame, text="BV", variable=self.use_MH, value=0, justify='left', command=lambda: self.handle_rate_select("BV"))
         r_mhc.pack()
         r_bv.pack()
         if MH_DEF:
             r_mhc.select()
+            self.handle_rate_select("MHC")
         else:
             r_bv.select()
-
-        self.left_param_frame.pack()
-        left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
-        tk.Label(self.left_param_frame, text="omega (unit):").grid(row=0)
-        tk.Label(self.left_param_frame, text="Gamma (unit):").grid(row=1)
-        tk.Label(self.left_param_frame, text="kT (J):").grid(row=2)
-        tk.Label(self.left_param_frame, text="alpha (unit):").grid(row=3)
-        tk.Label(self.left_param_frame, text="scan rate (V/s):").grid(row=4)
-        tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=5)
-        tk.Label(self.left_param_frame, text="P_start (V):").grid(row=6)
-        tk.Label(self.left_param_frame, text="P_end (V):").grid(row=7)
-        tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=8, sticky="E")
-
-        self.e3.grid(row=0, column=1)
-        self.e4.grid(row=1, column=1)
-        self.e5.grid(row=2, column=1)
-        self.e6.grid(row=3, column=1)
-        self.e7.grid(row=4, column=1)
-        self.e8.grid(row=5, column=1)
-        self.e16.grid(row=6, column=1)
-        self.e17.grid(row=7, column=1)
-        mhc_frame.grid(row=8, column=1, sticky="W")
+            self.handle_rate_select("BV")
+        
+        mhc_frame.grid(row=0, column=1, sticky="W")
 
         # Right column
         right_column_padder = tk.Frame(master, pady=0)
@@ -764,6 +770,23 @@ class MyDialog(tkd.Dialog, object):
             self.r2['state'] = 'normal'
             self.e1['state'] = 'normal'
             self.e2['state'] = 'normal'
+    
+    def handle_rate_select(self, expression):
+        if expression == "MHC":
+            self.omega_label.grid()
+            self.e3.grid()
+            self.gamma_label.grid_remove()
+            self.e4.grid_remove()
+            self.alpha_label.grid_remove()
+            self.e6.grid_remove()
+        else:
+            self.gamma_label.grid()
+            self.e4.grid()
+            self.alpha_label.grid()
+            self.e6.grid()
+            self.omega_label.grid_remove()
+            self.e3.grid_remove()
+
 
     def show_help(self):
         help_window = tk.Toplevel()
@@ -837,7 +860,7 @@ class MyDialog(tkd.Dialog, object):
         param_dict['gamma'] = float(self.e4.get())
         param_dict['kT'] = float(self.e5.get())
         param_dict['alpha'] = float(self.e6.get())
-        param_dict['scan_rate (s)'] = float(self.e7.get())
+        param_dict['scan_rate'] = float(self.e7.get())
         param_dict['time_steps'] = int(self.e8.get())
         param_dict['gamma_s'] = float(self.e9.get())
         param_dict['gamma_ads'] = float(self.e10.get())
@@ -854,10 +877,27 @@ class MyDialog(tkd.Dialog, object):
 
         self.master.quit()
         self.master.destroy()
-        sim = CV_Simulator(param_dict)
-        sim.run()
-        if sim.plot_T_F:
-            sim.plot()
+        if self.run_adsorption.get() == 1:
+            sim = CV_Simulator(param_dict)
+            sim.run()
+            if sim.plot_T_F:
+                sim.plot()
+        else:
+            sim = CV_No_Ads(param_dict['plot_T_F'])
+            sim.omega = param_dict['omega']
+            sim.Gamma = param_dict['gamma']
+            sim.kT = param_dict['kT']
+            sim.alpha = param_dict['alpha']
+            sim.scan_rate = param_dict['scan_rate']
+            sim.time_steps = param_dict['time_steps']
+            sim.P_start = param_dict['p_start']
+            sim.P_end = param_dict['p_end']
+            sim.MH = param_dict['mh']
+
+            sim.run()
+
+            if sim.plot_T_F:
+                sim.plot()
 
 #Gamma_list = np.logspace(-15,3,109)
 #omega_list = np.sqrt(np.linspace(0.2, 2.2, 6) / (27.211 * mass * 2 * y_A * y_A))
