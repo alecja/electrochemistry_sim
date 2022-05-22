@@ -9,11 +9,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Alternative imports for python 2.x and python 3.x respectively
+IS_PYTHON2 = False
 try:
     import Tkinter as tk
     import tkSimpleDialog as tkd
     from tkFileDialog import askopenfilename
     from tkMessageBox import showinfo
+    IS_PYTHON2 = True
 except ImportError:
     import tkinter as tk
     import tkinter.simpledialog as tkd
@@ -332,12 +334,19 @@ class CV_No_Ads:
                     self.plot()
         
         if self.plot_T_F:
-            self.plot()
             # fig, ax = plt.subplots()
-            # ax.plot(self.P_list, self.I, label='sol', color='b')
-            # ax.set_xlim(self.P_start * 0.99, self.P_end * 0.99)
-            # ax.plot(self.P_list[::-1], self.I_rev, label='sol_rev', color='r')
-            plt.show()
+            plt.close()
+            fig, ax = plt.subplots()
+            ax.set_xlabel("V", fontsize=24)
+            ax.set_ylabel("I", fontsize=24)
+            ax.set_title("Simulated CV (No adsorption)")
+            ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
+            ax.plot(self.P_list * 27.211, self.I)
+            ax.plot(self.P_list[::-1] * 27.211, self.I_rev)
+            if IS_PYTHON2:
+                plt.show(block=False)
+            else:
+                plt.show()
         
     
     def plot(self):
@@ -795,8 +804,18 @@ class CV_Simulator():
                 print('Done with time step ', ii, 'of ', self.time_steps)# , 'iter_steps, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii])
 
         if self.plot_T_F:
-            self.plot()
-            plt.show()
+            plt.close()
+            fig, ax = plt.subplots()
+            ax.set_xlabel("V", fontsize=24)
+            ax.set_ylabel("I", fontsize=24)
+            ax.set_title("Simulated CV (No adsorption)")
+            ax.set_xlim(self.p_start * 27.211, self.p_end * 27.211)
+            ax.plot(self.p_list * 27.211, self.I)
+            ax.plot(self.p_list[::-1] * 27.211, self.I_rev)
+            if IS_PYTHON2:
+                plt.show(block=False)
+            else:
+                plt.show()
 
     def plot(self):
         #pyplot.figure((8,8))
@@ -1139,7 +1158,6 @@ class MyDialog(tkd.Dialog, object):
 
         try:
             self.apply()
-            self.destroy()
         except:
             pass
     
@@ -1170,21 +1188,18 @@ class MyDialog(tkd.Dialog, object):
         param_dict['mh'] = bool(int(self.use_MH.get()))
         param_dict['plot_T_F'] = bool(PLOT_T_F_DEF)
         param_dict['isotherm'] = self.isotherm.get()
-        # TODO - add adsorption flag once Alec finishes his code
 
-        self.master.quit()
-        self.master.destroy()
+        # self.master.quit()
+        # self.master.destroy()
         if self.run_adsorption.get() == 1:
             sim = CV_Simulator(param_dict)
             sim.run()
-            if sim.plot_T_F:
-                sim.plot()
         else:
             sim = CV_No_Ads(param_dict)
             sim.run()
-
-            if sim.plot_T_F:
-                sim.plot()
+        
+        self.deiconify()
+        self.master.focus()
 
 #Gamma_list = np.logspace(-15,3,109)
 #omega_list = np.sqrt(np.linspace(0.2, 2.2, 6) / (27.211 * mass * 2 * y_A * y_A))
@@ -1206,4 +1221,4 @@ if __name__ == "__main__":
         root = tk.Tk()
         root.withdraw()
         root.winfo_toplevel().title("Grid-free CV simulation GUI")
-        MyDialog(root)
+        d = MyDialog(root)
