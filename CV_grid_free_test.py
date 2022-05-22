@@ -238,14 +238,17 @@ def make_jac(t, y, f):
         sys.exit()
     return jac_mat
 
+import warnings
+warnings.filterwarnings("ignore")
+
+is_ads = True
 # Which isotherm to use for adsorption
 isotherm = 'Langmuir'
 # Parameters for Temkin isotherm; not yet supported
 cov = 0.6
 char = 1e-10
-is_ads = True
-
 # Parameters for Frumkin isotherm
+# Range for each should be (-0.002 to 0.002)
 g_frum_a = 0
 g_frum_b = 0
 # Use BV or MH ET rates; default to MH = False (Uses BV)
@@ -254,27 +257,45 @@ MH = False
 mass = 2000
 y_A = 10
 y_B = -10
-omega = 0.0002347
+# User should now enter reorg instead of omega, units of reorg are eV and should have symbol $\lambda$
+# Range of reorg is (0.1-2.0 eV). Should only be entered for MH
+reorg = 1.0 # eV
+omega = np.sqrt(reorg / (27.211 * mass * 2 * y_A * y_A))
+# Gamma should now be called k_{0}^{MHC} or k_{0}^{BV}, depending on the ET theory used
+# The units are s^-1, and the range is (1e-2 - 1e4 s^-1)
+# Should default to zero when adsorption is turned on
 Gamma = 0
-kT = 0.00095
+# The user will enter temperature in units of Kelvin (with variable name temp), which will then be converted to kT here
+# No range needed
+temp = 298.
+kT = 3.18e-06 * temp
+# D is in units of cm^{2} / sec, and has range of (1e-6,1e-4)
 D = 1e-5
 epsilon = 1. / kT
-# Alpha for BV ET
+# Alpha for BV ET, should be $\alpha$ in the GUI, unitless, and range (0-1). Should only be entered for BV
 alpha = 0.5
-scan_rate = 1.0
-# Time steps in each direction, should be N + 1, where N is the desired number of steps (due to the structure of the code)
+#scan_rate is in units of V/sec, and user should be entering value for scan_temp. The symbol for scan_rate in the GUI should be $\nu$
+#range of scan_rate is (0.0001 - 1e4) V/sec
+scan_temp = 1
+scan_rate = scan_temp / 27.211
+# Time steps in each direction
 time_steps = 400
 plot_T_F = True
-print_step = 1
+# How often to print 'done with time step ....'
+print_step = 100
 
-#Gamma_s is saturated surface concentration, Gamma_ads is coupling for adsorbed ET
+#Gamma_s is normalized saturated surface concentration, Gamma_ads is coupling for adsorbed ET
+#Gamma_s range is (0 - 1), and should be shown in GUI as $\Gamma_{s}$
+#Gamma_ads range is (1e-2 to 1e4), and should be shown in GUIT as $\k_{0}^{ads}$. Units of Gamma_ads are s^{-1}
 Gamma_s = 1
 Gamma_ads = 1e2
-k_ads = 1e-2
+#k_ads range is (1e-2, 1e2), with units of s^{-1}
+k_ads = 1e0
 # All ads/des rates take same value by default, but can be individually changed if needed
-k_ads_a = k_ads * 2
+# Each one's range should be (0.01 - 100) of k_ads
+k_ads_a = k_ads
 k_ads_b = k_ads
-k_des_a = k_ads * 2
+k_des_a = k_ads
 k_des_b = k_ads
 c_A_init = 1.
 c_B_init = 1. - c_A_init
@@ -289,10 +310,12 @@ Gamma_a_rev = np.zeros((time_steps))
 Gamma_b_rev = np.zeros((time_steps))
 etol = 1e-8
 
-#P_list are the driving forces/voltages; E_0_ads is the adsorption energy
-P_start = 0.02
-E_0_ads = 0
-P_end = -0.02
+#P_list are the driving forces/voltages; user will enter V_start and V_end (in GUI as V_{start} and V_{end})
+#No range needed
+V_start = 1.0
+V_end = -1.0
+P_start = V_start / 27.211
+P_end = V_end / 27.211
 scan_direction = np.sign(P_end - P_start)
 P_list = np.linspace(P_start, P_end, time_steps + 1)
 dt = abs(P_start - P_end) / (time_steps * scan_rate)
@@ -378,7 +401,7 @@ if is_ads:
         I[ii] = k_func(delta_G_func(tt[ii]), 'f') * v_approx[ii] - k_func(delta_G_func(tt[ii]), 'b') * u_approx[ii]
         I_ads[ii] = k_func_ads(delta_G_func_ads(tt[ii]), 'f') * Gamma_a[ii] - k_func_ads(delta_G_func_ads(tt[ii]), 'b') * Gamma_b[ii]
         if ii % print_step == 0:
-            print('Done with time step ', ii, 'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], Gamma_a[ii], Gamma_b[ii], v_approx[ii] + u_approx[ii])
+            print('Done with time step ', ii, ' of ', time_steps)#'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], Gamma_a[ii], Gamma_b[ii], v_approx[ii] + u_approx[ii])
 
     Gamma_a_rev[0] = Gamma_a[-1]
     Gamma_b_rev[0] = Gamma_b[-1]
@@ -440,7 +463,7 @@ if is_ads:
         I_rev[ii] = k_func(delta_G_func(tt[ii]), 'f') * v_approx_rev[ii] - k_func(delta_G_func(tt[ii]), 'b') * u_approx_rev[ii]
         I_ads_rev[ii] = k_func_ads(delta_G_func_ads(tt[ii]), 'f') * Gamma_a_rev[ii] - k_func_ads(delta_G_func_ads(tt[ii]), 'b') * Gamma_b_rev[ii]
         if ii % print_step == 0:
-            print('Done with time step ', ii, 'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], Gamma_a_rev[ii], Gamma_b_rev[ii])
+            print('Done with time step ', ii, 'of ', time_steps)#'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], Gamma_a_rev[ii], Gamma_b_rev[ii])
 
 else:
     Gamma_s = 0.
@@ -491,11 +514,10 @@ else:
             print('Done with time step ', ii, ' of ', time_steps)#c_A, c_B, c_A + c_B = ', v_approx_rev[ii], u_approx_rev[ii], u_approx_rev[ii] + v_approx_rev[ii])
 
 if plot_T_F:
-    #pyplot.figure((8,8))
-    pyplot.plot(P_list[::-1][1:], I + I_ads)
-    pyplot.plot(P_list[1:], I_rev + I_ads_rev)
-    pyplot.xlabel('V')
-    pyplot.ylabel('I')
+    pyplot.plot(P_list[::-1][1:] * 27.211, I + I_ads)
+    pyplot.plot(P_list[1:] * 27.211, I_rev + I_ads_rev)
+    pyplot.xlabel(r'V', fontsize=24)
+    pyplot.ylabel(r'I', fontsize=24)
     pyplot.tight_layout()
     pyplot.show()
     pyplot.close()
