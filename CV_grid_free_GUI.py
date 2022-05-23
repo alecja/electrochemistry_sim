@@ -56,7 +56,7 @@ TIME_STEPS_DEF = 401
 #Gamma_s range is (0 - 1), and should be shown in GUI as $\Gamma_{s}$
 #Gamma_ads range is (1e-2 to 1e4), and should be shown in GUIT as $\k_{0}^{ads}$. Units of Gamma_ads are s^{-1}
 GAMMA_S_DEF = 1.0
-GAMMA_ADS_DEF = 1e4
+GAMMA_ADS_DEF = 1e2
 #k_ads range is (1e-2, 1e2), with units of s^{-1}
 K_ADS_DEF = 1e0
 K_ADS_A_DEF = K_ADS_DEF
@@ -395,7 +395,7 @@ class CV_Simulator():
         self.gamma = param_dict.get('gamma', GAMMA_DEF)
         self.temp = param_dict.get('temp', TEMP_DEF)
         self.alpha = param_dict.get('alpha', ALPHA_DEF)
-        self.scan_rate = param_dict.get('scan_rate', SCAN_RATE_DEF)
+        self.scan_temp = param_dict.get('scan_temp', SCAN_TEMP_DEF)
         self.time_steps = param_dict.get('time_steps', TIME_STEPS_DEF)
         self.gamma_s = param_dict.get('gamma_s', GAMMA_S_DEF)
         self.gamma_ads = param_dict.get('gamma_ads', GAMMA_ADS_DEF)
@@ -409,8 +409,27 @@ class CV_Simulator():
         self.plot_T_F = param_dict.get('plot_T_F', PLOT_T_F_DEF)
 
         # Compute additional parameters
+        self.p_start = self.v_start / 27.211
+        self.p_end = self.v_end / 27.211
         self.kT = 3.18e-06 * self.temp# T * 8.617e-5 / 27.211
         self.epsilon = 1. / self.kT
+        self.scan_rate = self.scan_temp / 27.211
+        self.c_A_init = 1.
+        self.c_B_init = 1. - self.c_A_init#0.
+        self.scan_direction = 1 if self.p_end > self.p_start else -1
+        self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps + 1)
+        self.dt = abs(self.p_start - self.p_end) / (self.time_steps * self.scan_rate)
+        self.ds = self.dt 
+        self.Gamma_a = np.zeros((self.time_steps))
+        # TODO - is this a good alternative to k_ads
+        if (self.k_ads_a + self.k_ads_b + self.k_des_a + self.k_des_b) != 0:
+            self.Gamma_a[0] = self.gamma_s * (self.k_ads_a / self.k_des_a) / (1. + self.k_ads_a / self.k_des_a) * np.exp(-2 * self.g_frum_a / self.kT)
+        else:
+            self.Gamma_a[0] = 0
+        self.Gamma_b = np.zeros((self.time_steps))
+        self.Gamma_b[0] = 0
+        self.Gamma_a_rev = np.zeros((self.time_steps))
+        self.Gamma_b_rev = np.zeros((self.time_steps))
 
         # Non-adjustable parameters (Add to gui/ read in if needed down the line)
         # Reorganization energy parameters (in a.u.); Gamma is coupling for in-solution (non-absorbed) ET
@@ -419,11 +438,10 @@ class CV_Simulator():
         self.y_B = -10
         # D is in units of cm^{2} / sec, and has range of (1e-6,1e-4)
         self.D = 1e-5
-        self.E_0_ads = E_0_ADS_DEF
         self.omega = np.sqrt(self.reorg / (27.211 * self.mass * 2 * self.y_A * self.y_A))
 
         # Initialize other values
-        self.tt = None
+        self.tt = np.linspace(0, self.dt * self.time_steps, self.time_steps + 1)
         self.norm_A = None
         self.norm_B = None
         self.gamma_a = np.zeros((self.time_steps))
@@ -434,13 +452,19 @@ class CV_Simulator():
         self.k_b_dict = {}
         self.k_f_dict_ads = {}
         self.k_b_dict_ads = {}
-        self.p_start = self.v_start / 27.211
-        self.p_end = self.v_end / 27.211
-        self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps)
+        self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps + 1)
         self.I = np.zeros((self.time_steps))
         self.I_ads = np.zeros((self.time_steps))
         self.I_rev = np.zeros((self.time_steps))
         self.I_ads_rev = np.zeros((self.time_steps))
+        self.u_approx = np.zeros((self.time_steps))
+        self.v_approx = np.zeros((self.time_steps))
+        self.v_approx[0] = self.c_A_init
+        self.u_approx[0] = self.c_B_init
+        self.max_steps = 20000
+        self.max_steps_uv = 3
+        self.etol = 1e-8
+        self.print_step = 50
 
         # Plotting initialization
         if self.plot_T_F:
@@ -477,60 +501,49 @@ class CV_Simulator():
         return np.exp(-(self.V_B(y, delta_G) - self.V_B(self.y_B, delta_G)) / self.kT)
 
     def delta_G_func(self, t):
-        if np.any(t < self.tt[-1]):
-            return self.p_start - self.scan_rate * t + self.E_0_ads
-        else:
-            return self.p_end + self.scan_rate * (t - self.tt[-1]) + self.E_0_ads
+        return self.p_start + self.scan_direction * self.scan_rate * t
 
     def delta_G_func_ads(self, t):
-        return (self.p_start - self.scan_rate * t) * (1 - int(t / self.tt[-1])) + (self.p_end + self.scan_rate * (t - self.tt[-1])) * int(t / self.tt[-1])
+        return self.p_start + self.scan_direction * self.scan_rate * t
 
     def a_cb(self, t):
-        try:
-            if t > self.tt[-1]:
-                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
-                return self.k_func(self.delta_G_func(t), 'b') + self.k_ads_b * (self.gamma_s - (self.gamma_a_rev[ind] + self.gamma_b_rev[ind]))
-            else:
-                ind = find_nearest(self.tt, t)
-                return self.k_func(self.delta_G_func(t), 'b') + self.k_ads_b * (self.gamma_s - (self.gamma_a[ind] + self.gamma_b[ind]))
-        except ValueError:
-            return self.k_func(self.delta_G_func(t), 'b')
+        return self.k_func(self.delta_G_func(t), 'b')
 
     def b_cb(self, t, c_A_temp):
-        try:
-            if t > self.tt[-1]:
-                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
-                return self.k_func(self.delta_G_func(t), 'f') * c_A_temp + self.k_des_b * self.gamma_b_rev[ind]
-            else:
-                ind = find_nearest(self.tt, t)
-                return self.k_func(self.delta_G_func(t), 'f') * c_A_temp + self.k_des_b * self.gamma_b[ind]
-        except ValueError:
-            return self.k_func(self.delta_G_func(t), 'f')
-
+        return self.k_func(self.delta_G_func(t), 'f') * c_A_temp
+    
+    def b_cb_prime(self, t):
+        return 0
+    
     def a_ca(self, t):
-        try:
-            if t > self.tt[-1]:
-                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
-                return self.k_func(self.delta_G_func(t), 'f') + self.k_ads_a * (self.gamma_s - (self.gamma_a_rev[ind] + self.gamma_b_rev[ind]))
-            else:
-                ind = find_nearest(self.tt, t)
-                return self.k_func(self.delta_G_func(t), 'f') + self.k_ads_a * (self.gamma_s - (self.gamma_a[ind] + self.gamma_b[ind]))
-        except ValueError:
-            return self.k_func(self.delta_G_func(t), 'f')
+        return self.k_func(self.delta_G_func(t), 'f')
 
     def b_ca(self, t, c_B_temp):
-        try:
-            if t > self.tt[-1]:
-                ind = np.where(np.isclose(self.tt, t % self.tt[-1]))[0][0]
-                return self.k_func(self.delta_G_func(t), 'b') * c_B_temp + self.k_des_a * self.gamma_a_rev[ind]
-            else:
-                ind = find_nearest(self.tt, t)
-                return self.k_func(self.delta_G_func(t), 'b') * c_B_temp + self.k_des_a * self.gamma_a[ind]
-        except ValueError:
-            return self.k_func(self.delta_G_func(t), 'b')
+       return self.k_func(self.delta_G_func(t), 'b') * c_B_temp
 
     def db_ds(self, t):
         return self.dk_func_ds(self.delta_G_func(t), 'f')
+    
+    def b_ca_prime(self, t):
+        return 0
+    
+    def a_cb_ads(self, t, Gamma_i, Gamma_j):
+        return self.k_func(self.delta_G_func(t), 'b') + self.k_ads_b * (self.gamma_s - (Gamma_i + Gamma_j))
+
+    def b_cb_ads(self, t, c_A_temp, Gamma_i):
+        return self.k_func(self.delta_G_func(t), 'f') * c_A_temp + self.k_des_b * Gamma_i
+
+    def b_cb_prime_ads(self, t, Gamma_i):
+        return self.k_des_b * Gamma_i
+
+    def a_ca_ads(self, t, Gamma_i, Gamma_j):
+        return self.k_func(self.delta_G_func(t), 'f') + self.k_ads_a * (self.gamma_s - (Gamma_i + Gamma_j))
+
+    def b_ca_ads(self, t, c_B_temp, Gamma_i):
+        return self.k_func(self.delta_G_func(t), 'b') * c_B_temp + self.k_des_a * Gamma_i
+
+    def b_ca_prime_ads(self, t, Gamma_i):
+        return self.k_des_a * Gamma_i
 
     def dGamma_a(self, t, Gamma_list, v):
         Gamma_a, Gamma_b = Gamma_list
@@ -631,31 +644,61 @@ class CV_Simulator():
         else:
             return result_array
 
-    def dk_func_ds(self, energy, dir):
-        if dir == 'f':
-            if self.mh:
-                return self.epsilon * self.scan_rate * self.gamma * integrate.quad(self.int_func_A_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(self.marg_func_A, -np.inf, np.inf)[0])
-            else:
-                return self.gamma * np.longdouble(np.exp(-self.alpha * self.epsilon * energy)) * (self.scan_rate * self.alpha * self.epsilon)
-        if dir == 'b':
-            if self.mh:
-                return (self.epsilon * self.scan_rate * self.gamma * integrate.quad(self.int_func_A_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(self.marg_func_A, -np.inf, np.inf)[0]) + np.longdouble(self.gamma * integrate.quad(self.int_func_A, -np.inf, np.inf, args=(energy,))[0] / self.norm_A) * -self.scan_rate * self.epsilon) * np.exp(energy / self.kT)
-                return -epsilon * scan_rate * Gamma * integrate.quad(int_func_B_ds, -np.inf, np.inf, args=(energy,))[0] / (integrate.quad(marg_func_B, -np.inf, np.inf, args=(energy,))[0])
-            else:
-                return self.gamma * np.longdouble(np.exp((1. - self.alpha) * self.epsilon * energy)) * (-self.scan_rate * (1. - self.alpha) * self.epsilon)
-
-    def ans_approx(self, u, v, tt, conc):
-        if conc == 'A':
-            b = self.b_ca
-            a = self.a_ca
-        if conc == 'B':
-            b = self.b_cb
-            a = self.a_cb
-        ds = tt[1] - tt[0]
+    def exact_ans(self, B, A, tt):
         t = tt[-1]
-        u = np.array(u)
-        v = np.array(v)
-        return np.longdouble((np.sqrt(self.D * np.pi) - a(t) * (ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1) * np.longdouble(ds * (np.sum((-a(tt[1:-1]) * u[1:] + b(tt[1:-1], v[1:-1]) - b(t, v[-1])) / np.sqrt(t - tt[1:-1])) + 0.5 * (b(0, v[0]) - b(t, v[-1])) / np.sqrt(t)) + 2. * b(t, v[-1]) * np.sqrt(t)).flatten()[0]
+        b = self.b_cb_prime
+        a = self.a_cb
+        u = B
+        v = A
+        if len(u[1:]) == 0:
+            eta_b = (self.dt * (self.b_cb(0,v[0]) - self.b_cb_prime(self.dt)) / (2. * np.sqrt(self.dt)) + 2 * self.b_cb_prime(self.dt) * np.sqrt(self.dt)) / (np.sqrt(self.D * np.pi) + self.a_cb(self.dt) * 1.5 * np.sqrt(self.dt))
+            chi_b = 2 * self.k_func(self.delta_G_func(self.dt), 'f') / (np.sqrt(self.D * np.pi / self.dt) + 1.5 * self.a_cb(self.dt))
+            print('eta_b is ', eta_b, ' chi_b is ', chi_b)
+        else:
+            denom = np.longdouble((np.sqrt(self.D * np.pi) - a(t) * (self.ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1)
+            eta_b = denom * np.longdouble(self.ds * (np.sum((-a(tt[1:-1]) * u[1:] + (b(tt[1:-1]) + self.k_func(self.delta_G_func(tt[1:-1]), 'f') * v[1:]) - b(t)) / np.sqrt(t - tt[1:-1])) + 0.5 * (b(0) + self.k_func(self.delta_G_func(tt[0]), 'f') * v[0] - b(t) + a(tt[0]) * self.c_B_init) / np.sqrt(t)) + 2. * b(t) * np.sqrt(t) + self.c_B_init * np.sqrt(self.D * np.pi)).flatten()[0]
+            chi_b = denom * np.longdouble(self.k_func(self.delta_G_func(t), 'f') * (self.ds * np.sum(-1. / np.sqrt(t - tt[1:-1]) - 0.5 / np.sqrt(t)) + 2. * np.sqrt(t)))
+            print('eta_b is ', eta_b, ' chi_b is ', chi_b)
+        b = self.b_ca_prime
+        a = self.a_ca
+        u = A
+        v = B
+        if len(u[1:]) == 0:
+            eta_a = (self.dt * (self.b_ca(0,v[0]) - self.b_ca_prime(self.dt)) / (2. * np.sqrt(self.dt)) + 2 * self.b_ca_prime(self.dt) * np.sqrt(self.dt) + np.sqrt(self.D * np.pi)) / (np.sqrt(self.D * np.pi) + self.a_ca(self.dt) * 1.5 * np.sqrt(self.dt))
+            chi_a = 2 * self.k_func(self.delta_G_func(self.dt), 'b') / (np.sqrt(self.D * np.pi / self.dt) + 1.5 * self.a_ca(self.dt))
+            print('eta_a is ', eta_a, ' chi_a is ', chi_a)
+        else:
+            denom = np.longdouble((np.sqrt(self.D * np.pi) - a(t) * (self.ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1)
+            eta_a = denom * np.longdouble(self.ds * (np.sum((-a(tt[1:-1]) * u[1:] + (b(tt[1:-1]) + self.k_func(self.delta_G_func(tt[1:-1]), 'b') * v[1:]) - b(t)) / np.sqrt(t - tt[1:-1])) + 0.5 * (b(0) + self.k_func(self.delta_G_func(tt[0]), 'b') * v[0] - b(t) + a(tt[0]) * self.c_A_init) / np.sqrt(t)) + 2. * b(t) * np.sqrt(t) + self.c_A_init * np.sqrt(self.D * np.pi)).flatten()[0]
+            chi_a = denom * np.longdouble(self.k_func(self.delta_G_func(t), 'b') * (self.ds * np.sum(-1. / np.sqrt(t - tt[1:-1]) - 0.5 / np.sqrt(t)) + 2. * np.sqrt(t)))
+            print('eta_a is ', eta_a, ' chi_a is ', chi_a)
+        return ((eta_a + chi_a * eta_b) / (1. - chi_a * chi_b), (eta_b + chi_b * eta_a) / (1. - chi_a * chi_b))
+
+    def exact_ans_ads(self, B, A, tt, Gamma_a, Gamma_b):
+        t = tt[-1]
+        b = self.b_cb_prime_ads
+        a = self.a_cb_ads
+        u = B
+        v = A
+        if len(u[1:]) == 0:
+            eta_b = (self.dt * (self.b_cb_ads(0,v[0],Gamma_b[0]) - self.b_cb_prime_ads(self.dt,Gamma_b[1])) / (2. * np.sqrt(self.dt)) + 2 * self.b_cb_prime_ads(self.dt,Gamma_b[1]) * np.sqrt(self.dt)) / (np.sqrt(self.D * np.pi) - self.a_cb_ads(self.dt,Gamma_a[1],Gamma_b[1]) * 1.5 * np.sqrt(self.dt))
+            chi_b = 2 * self.k_func(self.delta_G_func(self.dt), 'f') / (np.sqrt(self.D * np.pi / self.dt) - 1.5 * self.a_cb_ads(self.dt,Gamma_a[1],Gamma_b[1]))
+        else:
+            denom = np.longdouble((np.sqrt(self.D * np.pi) - a(t,Gamma_a[-1],Gamma_b[-1]) * (self.ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1)
+            eta_b = denom * np.longdouble(self.ds * (np.sum((-a(tt[1:-1],Gamma_a[1:-1],Gamma_b[1:-1]) * u[1:] + (b(tt[1:-1],Gamma_b[1:-1]) + self.k_func(self.delta_G_func(tt[1:-1]), 'f') * v[1:]) - b(t,Gamma_b[-1])) / np.sqrt(t - tt[1:-1])) + 0.5 * (b(0,Gamma_b[0]) + self.k_func(self.delta_G_func(tt[0]), 'f') * v[0] - b(t,Gamma_b[-1]) + a(tt[0],Gamma_a[0],Gamma_b[0]) * self.c_B_init) / np.sqrt(t)) + 2. * b(t,Gamma_b[-1]) * np.sqrt(t) + self.c_B_init * np.sqrt(self.D * np.pi)).flatten()[0]
+            chi_b = denom * np.longdouble(self.k_func(self.delta_G_func(t), 'f') * (self.ds * np.sum(-1. / np.sqrt(t - tt[1:-1]) - 0.5 / np.sqrt(t)) + 2. * np.sqrt(t)))
+        b = self.b_ca_prime_ads
+        a = self.a_ca_ads
+        u = A
+        v = B
+        if len(u[1:]) == 0:
+            eta_a = (self.dt * (self.b_ca_ads(0,v[0],Gamma_a[0]) - self.b_ca_prime_ads(self.dt,Gamma_a[1])) / (2. * np.sqrt(self.dt)) + 2 * self.b_ca_prime_ads(self.dt,Gamma_a[1]) * np.sqrt(self.dt) + np.sqrt(self.D * np.pi)) / (np.sqrt(self.D * np.pi) - self.a_ca_ads(self.dt,Gamma_a[1],Gamma_b[1]) * 1.5 * np.sqrt(self.dt))
+            chi_a = 2 * self.k_func(self.delta_G_func(self.dt), 'b') / (np.sqrt(self.D * np.pi / self.dt) - 1.5 * self.a_ca_ads(self.dt,Gamma_a[1],Gamma_b[1]))
+        else:
+            denom = np.longdouble((np.sqrt(self.D * np.pi) - a(t,Gamma_a[-1],Gamma_b[-1]) * (self.ds * (0.5 / np.sqrt(t) + np.sum(1. / np.sqrt(t - tt[1:-1]))) - 2 * np.sqrt(t))) ** -1)
+            eta_a = denom * np.longdouble(self.ds * (np.sum((-a(tt[1:-1],Gamma_a[1:-1],Gamma_b[1:-1]) * u[1:] + (b(tt[1:-1],Gamma_a[1:-1]) + self.k_func(self.delta_G_func(tt[1:-1]), 'b') * v[1:]) - b(t,Gamma_a[1:-1])) / np.sqrt(t - tt[1:-1])) + 0.5 * (b(0,Gamma_a[-1]) + self.k_func(self.delta_G_func(tt[0]), 'b') * v[0] - b(t,Gamma_a[-1]) + a(tt[0],Gamma_a[0],Gamma_b[0]) * self.c_A_init) / np.sqrt(t)) + 2. * b(t,Gamma_a[-1]) * np.sqrt(t) + self.c_A_init * np.sqrt(self.D * np.pi)).flatten()[0]
+            chi_a = denom * np.longdouble(self.k_func(self.delta_G_func(t), 'b') * (self.ds * np.sum(-1. / np.sqrt(t - tt[1:-1]) - 0.5 / np.sqrt(t)) + 2. * np.sqrt(t)))
+        return ((eta_a + chi_a * eta_b) / (1. - chi_a * chi_b), (eta_b + chi_b * eta_a) / (1. - chi_a * chi_b))
 
     def make_jac(self, t, y, f):
         v, u = f
@@ -681,149 +724,140 @@ class CV_Simulator():
 
     def run(self):
         rr = integrate.ode(self.dGamma, jac=self.make_jac).set_integrator('vode', method='bdf', nsteps=20000)
-        
-        self.gamma_a[0] = self.gamma_s * (self.k_ads_a / self.k_des_a) / (1. + self.k_ads_a / self.k_des_a) * np.exp(-2 * self.g_frum_a / self.kT)
-        self.gamma_b[0] = 0
-        etol = 1e-8
-        dt = abs(self.p_start - self.p_end) / (self.time_steps * self.scan_rate)
-        ds = dt
-
-        # Fill in class arrays/values not initialized in __init__
-        self.tt = np.linspace(0, dt * self.time_steps, self.time_steps)
-        self.norm_A = integrate.quad(self.marg_func_A, -np.inf, np.inf)[0]
-        self.norm_B = integrate.quad(self.marg_func_B, -np.inf, np.inf, args=(self.p_start,))[0]
-
-        u_approx = np.zeros((self.time_steps))
-        v_approx = np.zeros((self.time_steps))
-        v_approx[0] = 1.
-        max_steps = 20000
-        max_steps_uv = 3
-
-        start_time = time.time()
-        rr.set_initial_value([self.gamma_a[0], self.gamma_b[0]], 0.)
+        rr.set_initial_value([self.Gamma_a[0], self.Gamma_b[0]], 0.)
         for ii in range(1, self.time_steps):
-            self.gamma_a[ii] = self.gamma_a[ii - 1]
-            self.gamma_b[ii] = self.gamma_b[ii - 1]
+            self.Gamma_a[ii] = self.Gamma_a[ii - 1]
+            self.Gamma_b[ii] = self.Gamma_b[ii - 1]
             current_tol = 1.
             counter = 0
-            temp_ans = np.array([u_approx[ii], v_approx[ii], self.gamma_a[ii], self.gamma_b[ii]])
+            temp_ans = np.array([self.u_approx[ii], self.v_approx[ii], self.Gamma_a[ii], self.Gamma_b[ii]])
             if ii > 2:
-                self.gamma_a[ii] = 2 * self.gamma_a[ii - 1] - self.gamma_a[ii - 2]
-                self.gamma_b[ii] = 2 * self.gamma_b[ii - 1] - self.gamma_b[ii - 2]
-            while (np.any(np.nan_to_num(current_tol) > etol) or counter < 2) and counter < max_steps:
-                rr.set_initial_value([self.gamma_a[ii-1], self.gamma_b[ii-1]], self.tt[ii-1])
-                u_approx[ii] = u_approx[ii-1]
-                v_approx[ii] = v_approx[ii-1]
-                u_guess = u_approx[ii]
-                v_guess = v_approx[ii]
+                self.Gamma_a[ii] = 2 * self.Gamma_a[ii - 1] - self.Gamma_a[ii - 2]
+                self.Gamma_b[ii] = 2 * self.Gamma_b[ii - 1] - self.Gamma_b[ii - 2]
+            while (np.any(np.nan_to_num(current_tol) > self.etol) or counter < 2) and counter < self.max_steps:
+                rr.set_initial_value([self.Gamma_a[ii-1], self.Gamma_b[ii-1]], self.tt[ii-1])
+                self.u_approx[ii] = self.u_approx[ii-1]
+                self.v_approx[ii] = self.v_approx[ii-1]
+                u_guess = self.u_approx[ii]
+                v_guess = self.v_approx[ii]
                 counter_uv = 0
-                while counter_uv < max_steps_uv:
-                    u_guess = u_approx[ii]
-                    v_guess = v_approx[ii]
-                    u_approx[ii] = self.ans_approx(u_approx[:ii], v_approx[:ii + 1], self.tt[:ii + 1], 'B')
-                    v_approx[ii] = 1 + self.ans_approx(v_approx[:ii], u_approx[:ii + 1], self.tt[:ii + 1], 'A')
+                while counter_uv < self.max_steps_uv:
+                    u_guess = self.u_approx[ii]
+                    v_guess = self.v_approx[ii]
+                    self.v_approx[ii], self.u_approx[ii] = self.exact_ans_ads(self.u_approx[:ii], self.v_approx[:ii], self.tt[:ii+1], self.Gamma_a[:ii+1], self.Gamma_b[:ii+1])
+                    if self.u_approx[ii] < 0:
+                        self.u_approx[ii] = 0
+                    if self.v_approx[ii] < 0:
+                        self.v_approx[ii] = 0
                     counter_uv += 1
-                u_guess = u_approx[ii-1]
-                v_guess = v_approx[ii-1]
-                self.gamma_a[ii], self.gamma_b[ii] = rr.set_f_params([v_guess, u_guess]).set_jac_params([v_guess, u_guess]).integrate(rr.t + dt)
-                if u_approx[ii] < 0:
-                    u_approx[ii] = 0
-                if v_approx[ii] < 0:
-                    v_approx[ii] = 0
-                if self.gamma_a[ii] < 0:
-                    self.gamma_a[ii] = 0
-                if self.gamma_b[ii] < 0:
-                    self.gamma_b[ii] = 0
-                curr_ans = np.array([u_approx[ii], v_approx[ii], self.gamma_a[ii], self.gamma_b[ii]])
+                u_guess = self.u_approx[ii-1]
+                v_guess = self.v_approx[ii-1]
+                self.Gamma_a[ii], self.Gamma_b[ii] = rr.set_f_params([v_guess, u_guess]).set_jac_params([v_guess, u_guess]).integrate(rr.t + self.dt)
+                if self.u_approx[ii] < 0:
+                    self.u_approx[ii] = 0
+                if self.v_approx[ii] < 0:
+                    self.v_approx[ii] = 0
+                if self.Gamma_a[ii] < 0:
+                    self.Gamma_a[ii] = 0
+                if self.Gamma_b[ii] < 0:
+                    self.Gamma_b[ii] = 0
+                curr_ans = np.array([self.u_approx[ii], self.v_approx[ii], self.Gamma_a[ii], self.Gamma_b[ii]])
                 current_tol = np.abs(curr_ans - temp_ans) / curr_ans
                 temp_ans = curr_ans
                 counter += 1
-            self.I[ii] = self.k_func(self.delta_G_func(self.tt[ii]), 'f') * v_approx[ii] - self.k_func(self.delta_G_func(self.tt[ii]), 'b') * u_approx[ii]
-            self.I_ads[ii] = self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'f') * self.gamma_a[ii] - self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'b') * self.gamma_b[ii]
-            if ii % 50 == 0:
+            self.I[ii] = self.k_func(self.delta_G_func(self.tt[ii]), 'f') * self.v_approx[ii] - self.k_func(self.delta_G_func(self.tt[ii]), 'b') * self.u_approx[ii]
+            self.I_ads[ii] = self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'f') * self.Gamma_a[ii] - self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'b') * self.Gamma_b[ii]
+            if ii % self.print_step == 0:
+                print('Done with time step ', ii, ' of ', self.time_steps)#'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], Gamma_a[ii], Gamma_b[ii], v_approx[ii] + u_approx[ii])
                 if self.plot_T_F:
                     self.plot()
-                print('Done with time step ', ii, 'of ', self.time_steps) #'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx[ii], u_approx[ii], self.gamma_a[ii], self.gamma_b[ii])
 
-        self.gamma_a_rev[0] = self.gamma_a[-1]
-        self.gamma_b_rev[0] = self.gamma_b[-1]
+        self.Gamma_a_rev[0] = self.Gamma_a[-1]
+        self.Gamma_b_rev[0] = self.Gamma_b[-1]
         u_approx_rev = np.zeros((self.time_steps))
-        u_approx_rev[0] = u_approx[-1]
+        u_approx_rev[0] = self.u_approx[-1]
         v_approx_rev = np.zeros((self.time_steps))
-        v_approx_rev[0] = v_approx[-1]
+        v_approx_rev[0] = self.v_approx[-1]
         self.I_rev[0] = self.I[-1]
         self.I_ads_rev[0] = self.I_ads[-1]
-        rr.set_initial_value([self.gamma_a[-1], self.gamma_b[-1]], self.tt[-1])
+        rr.set_initial_value([self.Gamma_a_rev[-1], self.Gamma_b_rev[-1]], 0)
+        self.p_start, self.p_end = self.p_end, self.p_start
+        self.scan_direction = 1 if self.p_end > self.p_start else -1
+        self.k_f_dict = {}
+        self.k_b_dict = {}
+        self.c_A_init = self.v_approx[-1]
+        self.c_B_init = self.u_approx[-1]
+        self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps + 1)
 
         for ii in range(1, self.time_steps):
-            self.gamma_a_rev[ii] = self.gamma_a_rev[ii - 1]
-            self.gamma_b_rev[ii] = self.gamma_b_rev[ii - 1]
+            self.Gamma_a_rev[ii] = self.Gamma_a_rev[ii - 1]
+            self.Gamma_b_rev[ii] = self.Gamma_b_rev[ii - 1]
             current_tol = 1.
             counter = 0
-            temp_ans = np.array([u_approx_rev[ii], v_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii]])
+            temp_ans = np.array([u_approx_rev[ii], v_approx_rev[ii], self.Gamma_a_rev[ii], self.Gamma_b_rev[ii]])
             if ii > 2:
-                self.gamma_a_rev[ii] = 2 * self.gamma_a_rev[ii - 1] - self.gamma_a_rev[ii - 2]
-                self.gamma_b_rev[ii] = 2 * self.gamma_b_rev[ii - 1] - self.gamma_b_rev[ii - 2]
-            while (np.any(np.nan_to_num(current_tol) > etol) or counter < 2) and counter < max_steps:
-                rr.set_initial_value([self.gamma_a_rev[ii-1], self.gamma_b_rev[ii-1]], self.tt[-1] + self.tt[ii-1])
+                self.Gamma_a_rev[ii] = 2 * self.Gamma_a_rev[ii - 1] - self.Gamma_a_rev[ii - 2]
+                self.Gamma_b_rev[ii] = 2 * self.Gamma_b_rev[ii - 1] - self.Gamma_b_rev[ii - 2]
+            while (np.any(np.nan_to_num(current_tol) > self.etol) or counter < 2) and counter < self.max_steps:
+                rr.set_initial_value([self.Gamma_a_rev[ii-1], self.Gamma_b_rev[ii-1]], self.tt[ii-1])
                 u_approx_rev[ii] = u_approx_rev[ii-1]
                 v_approx_rev[ii] = v_approx_rev[ii-1]
                 u_guess = u_approx_rev[ii]
                 v_guess = v_approx_rev[ii]
                 counter_uv = 0
-                while counter_uv < max_steps_uv:
-                    u_guess = u_approx[ii]
-                    v_guess = v_approx[ii]
-                    u_approx_rev[ii] = self.ans_approx(np.concatenate((u_approx[:-1], u_approx_rev[:ii])), np.concatenate((v_approx[:-1], v_approx_rev[:ii + 1])), np.concatenate((self.tt, self.tt[-1] + self.tt[1:ii + 1])), 'B')
-                    v_approx_rev[ii] = 1 + self.ans_approx(np.concatenate((v_approx[:-1], v_approx_rev[:ii])), np.concatenate((u_approx[:-1], u_approx_rev[:ii + 1])), np.concatenate((self.tt, self.tt[-1] + self.tt[1:ii + 1])), 'A')
+                while counter_uv < self.max_steps_uv:
+                    u_guess = u_approx_rev[ii]
+                    v_guess = v_approx_rev[ii]
+                    v_approx_rev[ii], u_approx_rev[ii] = self.exact_ans_ads(u_approx_rev[:ii], v_approx_rev[:ii], self.tt[:ii+1], self.Gamma_a_rev[:ii+1], self.Gamma_b_rev[:ii+1])
+                    if u_approx_rev[ii] < 0:
+                        u_approx_rev[ii] = 0
+                    if v_approx_rev[ii] < 0:
+                        v_approx_rev[ii] = 0
                     counter_uv += 1
                 u_guess = u_approx_rev[ii-1]
                 v_guess = v_approx_rev[ii-1]
-                self.gamma_a_rev[ii], self.gamma_b_rev[ii] = rr.set_f_params([v_guess, u_guess]).set_jac_params([v_guess, u_guess]).integrate(rr.t + dt)
+                self.Gamma_a_rev[ii], self.Gamma_b_rev[ii] = rr.set_f_params([v_guess, u_guess]).set_jac_params([v_guess, u_guess]).integrate(rr.t + self.dt)
                 if u_approx_rev[ii] < 0:
                     u_approx_rev[ii] = 0
                 if v_approx_rev[ii] < 0:
                     v_approx_rev[ii] = 0
-                if self.gamma_a_rev[ii] < 0:
-                    self.gamma_a_rev[ii] = 0
-                if self.gamma_b_rev[ii] < 0:
-                    self.gamma_b_rev[ii] = 0
-                curr_ans = np.array([u_approx_rev[ii], v_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii]])
+                if self.Gamma_a_rev[ii] < 0:
+                    self.Gamma_a_rev[ii] = 0
+                if self.Gamma_b_rev[ii] < 0:
+                    self.Gamma_b_rev[ii] = 0
+                curr_ans = np.array([u_approx_rev[ii], v_approx_rev[ii], self.Gamma_a_rev[ii], self.Gamma_b_rev[ii]])
                 current_tol = np.abs(curr_ans - temp_ans) / curr_ans
                 temp_ans = curr_ans
                 counter += 1
-            if ii == self.time_steps - 1:
-                self.I_rev[ii] = self.k_func(self.delta_G_func(0), 'f') * v_approx_rev[ii] - self.k_func(self.delta_G_func(0), 'b') * u_approx_rev[ii]
-                self.I_ads_rev[ii] = self.k_func_ads(self.delta_G_func_ads(0), 'f') * self.gamma_a_rev[ii] - self.k_func_ads(self.delta_G_func_ads(0), 'b') * self.gamma_b_rev[ii]
-            else:
-                self.I_rev[ii] = self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'f') * v_approx_rev[ii] - self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'b') * u_approx_rev[ii]
-                self.I_ads_rev[ii] = self.k_func_ads(self.delta_G_func_ads(self.tt[-1] + self.tt[ii]), 'f') * self.gamma_a_rev[ii] - self.k_func_ads(self.delta_G_func_ads(self.tt[-1] + self.tt[ii]), 'b') * self.gamma_b_rev[ii]
-            if ii % 50 == 0:
+            self.I_rev[ii] = self.k_func(self.delta_G_func(self.tt[ii]), 'f') * v_approx_rev[ii] - self.k_func(self.delta_G_func(self.tt[ii]), 'b') * u_approx_rev[ii]
+            self.I_ads_rev[ii] = self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'f') * self.Gamma_a_rev[ii] - self.k_func_ads(self.delta_G_func_ads(self.tt[ii]), 'b') * self.Gamma_b_rev[ii]
+            if ii % self.print_step == 0:
+                print('Done with time step ', ii, 'of ', self.time_steps)#'iter_steps, c_A, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], Gamma_a_rev[ii], Gamma_b_rev[ii])
                 if self.plot_T_F:
                     self.plot()
-                print('Done with time step ', ii, 'of ', self.time_steps)# , 'iter_steps, c_B, Gamma_A, Gamma_B = ', counter, v_approx_rev[ii], u_approx_rev[ii], self.gamma_a_rev[ii], self.gamma_b_rev[ii])
 
         if self.plot_T_F:
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
             ax.set_ylabel("I", fontsize=24)
-            ax.set_title("Simulated CV (No adsorption)")
+            ax.set_title("Simulated CV")
             ax.set_xlim(self.p_start * 27.211, self.p_end * 27.211)
-            ax.plot(self.p_list * 27.211, self.I)
-            ax.plot(self.p_list[::-1] * 27.211, self.I_rev)
+            ax.plot(self.p_list[::-1][1:] * 27.211, self.I + self.I_ads)
+            ax.plot(self.p_list[1:] * 27.211, self.I_rev + self.I_ads_rev)
             if IS_PYTHON2:
                 plt.show(block=False)
             else:
                 plt.show()
+            plt.show()
 
     def plot(self):
-        #pyplot.figure((8,8))
-        self.for_line.set_data(self.p_list * 27.211, self.I + self.I_ads)
+        # pyplot.figure((8,8))
+        self.for_line.set_data(self.p_list[::-1][1:] * 27.211, self.I + self.I_ads)
         ylim_max = max(self.I + self.I_ads)*1.1
         y_lim_min = min(self.I_rev + self.I_ads_rev)*1.1
         self.ax.set_ylim(-max(ylim_max, abs(y_lim_min)), ylim_max)
-        self.rev_line.set_data(self.p_list[::-1] * 27.211, self.I_rev + self.I_ads_rev)
+        self.rev_line.set_data(self.p_list[1:] * 27.211, self.I_rev + self.I_ads_rev)
         self.fig.canvas.draw()
         try:
             self.fig.canvas.flush_events()
