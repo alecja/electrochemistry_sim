@@ -862,13 +862,22 @@ class Formatted_Label(tk.Text, object):
     def __init__(self, master):
         super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"))
         self['state'] = 'normal'
+        self.tag_configure("subscript", offset=-6)
+        self.tag_configure("subscript", font=('Serif', 8))
+        self.tag_configure("superscript", offset=6)
+        self.tag_configure("superscript", font=('Serif', 8))
 
     def insert(self, *args):
         self['state'] = 'normal'
         super(Formatted_Label, self).insert(*args)
-        print(self.get("1.0", "end"))
-        self.configure(width=len(self.get("1.0", "end")))
+        self.configure(width=len(self.get("1.0", "end")) - 1)
         self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]))
+        self['state'] = 'disabled'
+    
+    def set(self, new):
+        self['state'] = 'normal'
+        self.delete('1.0', tk.END)
+        self.insert("insert", new)
         self['state'] = 'disabled'
     
 class MyDialog(tkd.Dialog, object):
@@ -887,8 +896,6 @@ class MyDialog(tkd.Dialog, object):
         # self.should_plot = tk.IntVar()
         self.isotherm = tk.StringVar()
         self.use_MH = tk.IntVar()
-        self.isotherm_param_label_a = tk.StringVar()
-        self.isotherm_param_label_b = tk.StringVar()
         self.run_adsorption = tk.IntVar()
 
         # Left side
@@ -916,7 +923,8 @@ class MyDialog(tkd.Dialog, object):
         self.left_param_frame.pack()
         left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
         tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=0, sticky="E")
-        self.gamma_label = tk.Label(self.left_param_frame, text=u"k\u2080 (s\u207b\u00B9)):")
+        self.gamma_label = Formatted_Label(self.left_param_frame)
+        self.gamma_label.insert("insert", "")
         self.gamma_label.grid(row=1)
         self.alpha_label = tk.Label(self.left_param_frame, text=u"\u03B1:")
         self.alpha_label.grid(row=2)
@@ -929,8 +937,12 @@ class MyDialog(tkd.Dialog, object):
         nu_label.insert("insert", u"\u03bd (V/s):")
         nu_label.grid(row=5)
         tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
-        tk.Label(self.left_param_frame, text="V_start (V):").grid(row=7)
-        tk.Label(self.left_param_frame, text="V_end (V):").grid(row=8)
+        v_start_label = Formatted_Label(self.left_param_frame)
+        v_start_label.insert("insert", "V", "", "start", "subscript", "(V):")
+        v_start_label.grid(row=7)
+        v_end_label = Formatted_Label(self.left_param_frame)
+        v_end_label.insert("insert", "V", "", "end", "subscript", "(V):")
+        v_end_label.grid(row=8)
 
         self.gamma_in.grid(row=1, column=1)
         self.e6.grid(row=2, column=1)
@@ -962,12 +974,24 @@ class MyDialog(tkd.Dialog, object):
         right_column_padder.grid(row=0, column=2, columnspan=2, sticky='new')
         right_adsorb_background.grid(row=0, column=0, sticky="new")
         self.right_adsorb_frame.pack()
-        tk.Label(self.right_adsorb_frame, text="Gamma_s (1/A):").grid(row=1, column=0)
-        tk.Label(self.right_adsorb_frame, text=u"Gamma_ads (s\u207b\u00B9):").grid(row=2, column=0)
-        tk.Label(self.right_adsorb_frame, text="k_ads_a (1/s):").grid(row=3, column=0)
-        tk.Label(self.right_adsorb_frame, text="k_ads_b (1/s):").grid(row=4, column=0)
-        tk.Label(self.right_adsorb_frame, text="k_des_a (1/s):").grid(row=5, column=0)
-        tk.Label(self.right_adsorb_frame, text="k_des_b (1/s):").grid(row=6, column=0)
+        gamma_s_label = Formatted_Label(self.right_adsorb_frame)
+        gamma_s_label.insert('insert', u'\u0393', '', 's', 'subscript', "(1/A):")
+        gamma_s_label.grid(row=1, column=0)
+        gamma_ads_label = Formatted_Label(self.right_adsorb_frame)
+        gamma_ads_label.insert("insert", "k", "", "0", "subscript", "ads", "superscript", "(s", "", "-1", "superscript", "):")
+        gamma_ads_label.grid(row=2, column=0)
+        k_ads_a_label = Formatted_Label(self.right_adsorb_frame)
+        k_ads_a_label.insert("insert", "k", "", "a", "subscript", "ads", "superscript")
+        k_ads_a_label.grid(row=3, column=0)
+        k_ads_b_label = Formatted_Label(self.right_adsorb_frame)
+        k_ads_b_label.insert("insert", "k", "", "b", "subscript", "ads", "superscript")
+        k_ads_b_label.grid(row=4, column=0)
+        k_des_a_label = Formatted_Label(self.right_adsorb_frame)
+        k_des_a_label.insert("insert", "k", "", "a", "subscript", "des", "superscript")
+        k_des_a_label.grid(row=5, column=0)
+        k_des_b_label = Formatted_Label(self.right_adsorb_frame)
+        k_des_b_label.insert("insert", "k", "", "b", "subscript", "des", "superscript")
+        k_des_b_label.grid(row=6, column=0)
 
         self.e9 = tk.Entry(self.right_adsorb_frame)
         self.e9.insert(1, GAMMA_S_DEF)
@@ -996,10 +1020,12 @@ class MyDialog(tkd.Dialog, object):
         tk.Label(isotherm_frame, text="Isotherm:").grid(row=0)
         self.isotherm_params_label = tk.Label(isotherm_frame, text="Parameters")
         self.isotherm_params_label.grid(row=1)
-        self.isotherm_param_label_a_w = tk.Label(isotherm_frame, textvariable=self.isotherm_param_label_a)
-        self.isotherm_param_label_b_w = tk.Label(isotherm_frame, textvariable=self.isotherm_param_label_b)
-        self.isotherm_param_label_a_w.grid(row=2)
-        self.isotherm_param_label_b_w.grid(row=3)
+        self.isotherm_param_label_a = Formatted_Label(isotherm_frame)
+        self.isotherm_param_label_a.insert("insert", "")
+        self.isotherm_param_label_b = Formatted_Label(isotherm_frame)
+        self.isotherm_param_label_b.insert("insert", "")
+        self.isotherm_param_label_a.grid(row=2)
+        self.isotherm_param_label_b.grid(row=3)
 
         self.e1 = tk.Entry(isotherm_frame)
         self.e2 = tk.Entry(isotherm_frame)
@@ -1072,12 +1098,14 @@ class MyDialog(tkd.Dialog, object):
         self.e2.delete(0, len(self.e2.get()))
         self.e1.grid()
         self.e2.grid()
-        self.isotherm_param_label_a_w.grid()
-        self.isotherm_param_label_b_w.grid()
+        self.isotherm_param_label_a.grid()
+        self.isotherm_param_label_b.grid()
         self.isotherm_params_label.grid()
         if isotherm == "Frumkin":
-            self.isotherm_param_label_a.set("g_frum_a:")
-            self.isotherm_param_label_b.set("g_frum_b:")
+            self.isotherm_param_label_a.set("")
+            self.isotherm_param_label_a.insert("insert", "g", "", "a", "subscript")
+            self.isotherm_param_label_b.set("")
+            self.isotherm_param_label_b.insert("insert", "g", "", "b", "subscript")
             self.e1['state'] = 'normal'
             self.e2['state'] = 'normal'
             self.e1.insert(0, G_FRUM_A_DEF)
@@ -1096,8 +1124,8 @@ class MyDialog(tkd.Dialog, object):
             self.e2['state'] = 'disabled'
             self.e1.grid_remove()
             self.e2.grid_remove()
-            self.isotherm_param_label_a_w.grid_remove()
-            self.isotherm_param_label_b_w.grid_remove()
+            self.isotherm_param_label_a.grid_remove()
+            self.isotherm_param_label_b.grid_remove()
             self.isotherm_params_label.grid_remove()
     
     def handle_adsorption_toggle(self):
@@ -1138,11 +1166,15 @@ class MyDialog(tkd.Dialog, object):
             self.reorg_in.grid()
             self.alpha_label.grid_remove()
             self.e6.grid_remove()
+            self.gamma_label.set("")
+            self.gamma_label.insert("insert", "k", "", "0", "subscript", "MHC", "superscript", "(s", "", "-1", "superscript", "):")
         else:
             self.alpha_label.grid()
             self.e6.grid()
             self.reorg_label.grid_remove()
             self.reorg_in.grid_remove()
+            self.gamma_label.set("")
+            self.gamma_label.insert("insert", "k", "", "0", "subscript", "BV", "superscript", "(s", "", "-1", "superscript", "):")
 
 
     def show_help(self):
@@ -1265,5 +1297,5 @@ if __name__ == "__main__":
     else:
         root = tk.Tk()
         root.withdraw()
-        root.winfo_toplevel().title("Grid-free CV simulation GUI")
+        root.winfo_toplevel().title("Grid-free PyCV")
         d = MyDialog(root)
