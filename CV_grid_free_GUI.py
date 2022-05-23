@@ -51,7 +51,7 @@ ALPHA_DEF = .5
 #range of scan_rate is (0.0001 - 1e4) V/sec
 SCAN_TEMP_DEF = 1
 SCAN_RATE_DEF = SCAN_TEMP_DEF / 27.211
-TIME_STEPS_DEF = 401
+TIME_STEPS_DEF = 400
 #Gamma_s is normalized saturated surface concentration, Gamma_ads is coupling for adsorbed ET
 #Gamma_s range is (0 - 1), and should be shown in GUI as $\Gamma_{s}$
 #Gamma_ads range is (1e-2 to 1e4), and should be shown in GUIT as $\k_{0}^{ads}$. Units of Gamma_ads are s^{-1}
@@ -77,6 +77,7 @@ ADS_DEF = False
 
 # GUI parameters
 BG_SIZE = 3
+PRINT_STEP_DEF = 50
 
 def heat_eq(s, *args):
     x = args[0]
@@ -157,6 +158,7 @@ class CV_No_Ads:
         self.u_approx[0] = self.c_B_init
         self.I = np.zeros((self.time_steps))
         self.I_rev = np.zeros((self.time_steps))
+        self.print_step = PRINT_STEP_DEF
 
         # Plotting initialization
         if self.plot_T_F:
@@ -307,7 +309,7 @@ class CV_No_Ads:
         for ii in range(1, self.time_steps):
             self.u_approx[ii] = self.exact_approx(self.u_approx[:ii], self.tt[:ii + 1])
             self.I[ii] = self.k_func(self.delta_G_func(self.tt[ii]), 'f') * (1. - self.u_approx[ii]) - self.k_func(self.delta_G_func(self.tt[ii]), 'b') * self.u_approx[ii]
-            if ii % 50 == 0:
+            if ii % self.print_step == 0:
                 print('Done with time step ', ii, 'of ', self.time_steps)#'iter_steps, c_B, Gamma_A, Gamma_B = ',  u_approx[ii])
                 if self.plot_T_F:
                     self.plot()
@@ -328,7 +330,7 @@ class CV_No_Ads:
                 self.I_rev[ii] = self.k_func(self.delta_G_func(0), 'f') * (1. - u_approx_rev[ii]) - self.k_func(self.delta_G_func(0), 'b') * u_approx_rev[ii]
             else:
                 self.I_rev[ii] = self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'f') * (1. - u_approx_rev[ii]) - self.k_func(self.delta_G_func(self.tt[-1] + self.tt[ii]), 'b') * u_approx_rev[ii]
-            if ii % 50 == 0:
+            if ii % self.print_step == 0:
                 print('Done with time step ', ii, 'of ', self.time_steps)#'iter_steps, c_B, Gamma_A, Gamma_B = ', u_approx_rev[ii])
                 if self.plot_T_F:
                     self.plot()
@@ -442,29 +444,24 @@ class CV_Simulator():
 
         # Initialize other values
         self.tt = np.linspace(0, self.dt * self.time_steps, self.time_steps + 1)
-        self.norm_A = None
-        self.norm_B = None
-        self.gamma_a = np.zeros((self.time_steps))
-        self.gamma_b = np.zeros((self.time_steps))
-        self.gamma_a_rev = np.zeros((self.time_steps))
-        self.gamma_b_rev = np.zeros((self.time_steps))
+        self.norm_A = integrate.quad(self.marg_func_A, -np.inf, np.inf)[0]
+        self.norm_B = integrate.quad(self.marg_func_B, -np.inf, np.inf, args=(self.p_start,))[0]
         self.k_f_dict = {}
         self.k_b_dict = {}
         self.k_f_dict_ads = {}
         self.k_b_dict_ads = {}
-        self.p_list = np.linspace(self.p_start, self.p_end, self.time_steps + 1)
-        self.I = np.zeros((self.time_steps))
-        self.I_ads = np.zeros((self.time_steps))
-        self.I_rev = np.zeros((self.time_steps))
-        self.I_ads_rev = np.zeros((self.time_steps))
         self.u_approx = np.zeros((self.time_steps))
         self.v_approx = np.zeros((self.time_steps))
         self.v_approx[0] = self.c_A_init
         self.u_approx[0] = self.c_B_init
+        self.I = np.zeros((self.time_steps))
+        self.I_ads = np.zeros((self.time_steps))
+        self.I_rev = np.zeros((self.time_steps))
+        self.I_ads_rev = np.zeros((self.time_steps))
         self.max_steps = 20000
         self.max_steps_uv = 3
         self.etol = 1e-8
-        self.print_step = 50
+        self.print_step = PRINT_STEP_DEF
 
         # Plotting initialization
         if self.plot_T_F:
@@ -521,9 +518,6 @@ class CV_Simulator():
     def b_ca(self, t, c_B_temp):
        return self.k_func(self.delta_G_func(t), 'b') * c_B_temp
 
-    def db_ds(self, t):
-        return self.dk_func_ds(self.delta_G_func(t), 'f')
-    
     def b_ca_prime(self, t):
         return 0
     
@@ -864,6 +858,19 @@ class CV_Simulator():
         except:
             plt.pause(1e-10)
 
+class Formatted_Label(tk.Text, object):
+    def __init__(self, master):
+        super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"))
+        self['state'] = 'normal'
+
+    def insert(self, *args):
+        self['state'] = 'normal'
+        super(Formatted_Label, self).insert(*args)
+        print(self.get("1.0", "end"))
+        self.configure(width=len(self.get("1.0", "end")))
+        self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]))
+        self['state'] = 'disabled'
+    
 class MyDialog(tkd.Dialog, object):
 
     def __init__(self, master):
@@ -915,8 +922,12 @@ class MyDialog(tkd.Dialog, object):
         self.alpha_label.grid(row=2)
         self.reorg_label = tk.Label(self.left_param_frame, text=u"\u03bb (eV):")
         self.reorg_label.grid(row=3)
-        tk.Label(self.left_param_frame, text="Temperature (K):").grid(row=4)
-        tk.Label(self.left_param_frame, text=u"\u03bd (V/s):").grid(row=5)
+        temp_label = Formatted_Label(self.left_param_frame)
+        temp_label.insert("insert", "Temperature (K):")
+        temp_label.grid(row=4)
+        nu_label = Formatted_Label(self.left_param_frame)
+        nu_label.insert("insert", u"\u03bd (V/s):")
+        nu_label.grid(row=5)
         tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
         tk.Label(self.left_param_frame, text="V_start (V):").grid(row=7)
         tk.Label(self.left_param_frame, text="V_end (V):").grid(row=8)
@@ -1200,11 +1211,15 @@ class MyDialog(tkd.Dialog, object):
         elif self.isotherm.get() == 'Temkin':
             param_dict['cov'] = float(self.e1.get())
             param_dict['char'] = float(self.e2.get())
-
-        param_dict['reorg'] = float(self.reorg_in.get())
+        
+        # Optionally set parameters for rate expression
+        if self.use_MH.get():
+            param_dict['reorg'] = float(self.reorg_in.get())
+        else:
+            param_dict['alpha'] = float(self.e6.get())
+        
         param_dict['gamma'] = float(self.gamma_in.get())
         param_dict['temp'] = float(self.temp_in.get())
-        param_dict['alpha'] = float(self.e6.get())
         param_dict['scan_temp'] = float(self.scan_temp_in.get())
         param_dict['time_steps'] = int(self.e8.get())
         param_dict['gamma_s'] = float(self.e9.get())
