@@ -922,13 +922,13 @@ class MyDialog(tkd.Dialog, object):
 
         self.left_param_frame.pack()
         left_param_background.grid(row=0, column=0, columnspan=2, sticky='new')
-        tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=0, sticky="E")
+        tk.Label(self.left_param_frame, text="ET rate expression:").grid(row=0)
         self.gamma_label = Formatted_Label(self.left_param_frame)
         self.gamma_label.insert("insert", "")
         self.gamma_label.grid(row=1)
         self.alpha_label = tk.Label(self.left_param_frame, text=u"\u03B1:")
         self.alpha_label.grid(row=2)
-        self.reorg_label = tk.Label(self.left_param_frame, text=u"\u03bb (eV):")
+        self.reorg_label = tk.Label(self.left_param_frame, text=u"\u03bb (.1eV - 2eV):")
         self.reorg_label.grid(row=3)
         temp_label = Formatted_Label(self.left_param_frame)
         temp_label.insert("insert", "Temperature (K):")
@@ -973,7 +973,7 @@ class MyDialog(tkd.Dialog, object):
         self.right_adsorb_frame = tk.Frame(right_adsorb_background, padx=10, pady=10)
         right_column_padder.grid(row=0, column=2, columnspan=2, sticky='new')
         right_adsorb_background.grid(row=0, column=0, sticky="new")
-        self.right_adsorb_frame.pack()
+        self.right_adsorb_frame.pack(fill='x')
         gamma_s_label = Formatted_Label(self.right_adsorb_frame)
         gamma_s_label.insert('insert', u'\u0393', '', 's', 'subscript', "(1/A):")
         gamma_s_label.grid(row=1, column=0)
@@ -1103,9 +1103,9 @@ class MyDialog(tkd.Dialog, object):
         self.isotherm_params_label.grid()
         if isotherm == "Frumkin":
             self.isotherm_param_label_a.set("")
-            self.isotherm_param_label_a.insert("insert", "g", "", "a", "subscript")
+            self.isotherm_param_label_a.insert("insert", "g", "", "a", "subscript", "(-.002 - .002)", "")
             self.isotherm_param_label_b.set("")
-            self.isotherm_param_label_b.insert("insert", "g", "", "b", "subscript")
+            self.isotherm_param_label_b.insert("insert", "g", "", "b", "subscript", "(-.002 - .002)", "")
             self.e1['state'] = 'normal'
             self.e2['state'] = 'normal'
             self.e1.insert(0, G_FRUM_A_DEF)
@@ -1167,14 +1167,14 @@ class MyDialog(tkd.Dialog, object):
             self.alpha_label.grid_remove()
             self.e6.grid_remove()
             self.gamma_label.set("")
-            self.gamma_label.insert("insert", "k", "", "0", "subscript", "MHC", "superscript", "(s", "", "-1", "superscript", "):")
+            self.gamma_label.insert("insert", "k", "", "0", "subscript", "MHC", "superscript", "(.01s", "", "-1", "superscript", " - 10", "", "4", "superscript", "s", "", "-1", "superscript", "):")
         else:
             self.alpha_label.grid()
             self.e6.grid()
             self.reorg_label.grid_remove()
             self.reorg_in.grid_remove()
             self.gamma_label.set("")
-            self.gamma_label.insert("insert", "k", "", "0", "subscript", "BV", "superscript", "(s", "", "-1", "superscript", "):")
+            self.gamma_label.insert("insert", "k", "", "0", "subscript", "BV", "superscript", "(.01s", "", "-1", "superscript", " - 10", "", "4", "superscript", "s", "", "-1", "superscript", "):")
 
 
     def show_help(self):
