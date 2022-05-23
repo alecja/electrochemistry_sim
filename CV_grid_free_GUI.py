@@ -51,7 +51,7 @@ ALPHA_DEF = .5
 #range of scan_rate is (0.0001 - 1e4) V/sec
 SCAN_TEMP_DEF = 1
 SCAN_RATE_DEF = SCAN_TEMP_DEF / 27.211
-TIME_STEPS_DEF = 400
+TIME_STEPS_DEF = 401
 #Gamma_s is normalized saturated surface concentration, Gamma_ads is coupling for adsorbed ET
 #Gamma_s range is (0 - 1), and should be shown in GUI as $\Gamma_{s}$
 #Gamma_ads range is (1e-2 to 1e4), and should be shown in GUIT as $\k_{0}^{ads}$. Units of Gamma_ads are s^{-1}
@@ -362,7 +362,7 @@ class CV_No_Ads:
         try:
             self.fig.canvas.flush_events()
         except:
-            plt.pause(1e-10)
+            plt.pause(1e-2)
 
 class CV_Simulator():
     def __init__(self, param_dict, file=None):
@@ -856,11 +856,11 @@ class CV_Simulator():
         try:
             self.fig.canvas.flush_events()
         except:
-            plt.pause(1e-10)
+            plt.pause(1e-2)
 
 class Formatted_Label(tk.Text, object):
     def __init__(self, master):
-        super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"))
+        super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"), pady=8)
         self['state'] = 'normal'
         self.tag_configure("subscript", offset=-6)
         self.tag_configure("subscript", font=('Serif', 8))
@@ -915,6 +915,7 @@ class MyDialog(tkd.Dialog, object):
         self.scan_temp_in.insert(0, SCAN_TEMP_DEF)
         self.e8 = tk.Entry(self.left_param_frame)
         self.e8.insert(0, TIME_STEPS_DEF)
+        self.e8['state'] = 'disabled'
         self.v_start_in = tk.Entry(self.left_param_frame)
         self.v_start_in.insert(0, V_START_DEF)
         self.v_end_in = tk.Entry(self.left_param_frame)
@@ -934,14 +935,14 @@ class MyDialog(tkd.Dialog, object):
         temp_label.insert("insert", "Temperature (K):")
         temp_label.grid(row=4)
         nu_label = Formatted_Label(self.left_param_frame)
-        nu_label.insert("insert", u"\u03bd (V/s):")
+        nu_label.insert("insert", u"\u03bd (Volt/s):")
         nu_label.grid(row=5)
         tk.Label(self.left_param_frame, text="Number of time steps:").grid(row=6)
         v_start_label = Formatted_Label(self.left_param_frame)
-        v_start_label.insert("insert", "V", "", "start", "subscript", "(V):")
+        v_start_label.insert("insert", "V", "", "start", "subscript", "(Volt):")
         v_start_label.grid(row=7)
         v_end_label = Formatted_Label(self.left_param_frame)
-        v_end_label.insert("insert", "V", "", "end", "subscript", "(V):")
+        v_end_label.insert("insert", "V", "", "end", "subscript", "(Volt):")
         v_end_label.grid(row=8)
 
         self.gamma_in.grid(row=1, column=1)
@@ -975,10 +976,10 @@ class MyDialog(tkd.Dialog, object):
         right_adsorb_background.grid(row=0, column=0, sticky="new")
         self.right_adsorb_frame.pack(fill='x')
         gamma_s_label = Formatted_Label(self.right_adsorb_frame)
-        gamma_s_label.insert('insert', u'\u0393', '', 's', 'subscript', "(1/A):")
+        gamma_s_label.insert('insert', u'\u0393', '', 's', 'subscript', "(1/cm", "", "2", "superscript", "):")
         gamma_s_label.grid(row=1, column=0)
         gamma_ads_label = Formatted_Label(self.right_adsorb_frame)
-        gamma_ads_label.insert("insert", "k", "", "0", "subscript", "ads", "superscript", "(s", "", "-1", "superscript", "):")
+        gamma_ads_label.insert("insert", "k", "", "0", "subscript", "(s", "", "-1", "superscript", "):")
         gamma_ads_label.grid(row=2, column=0)
         k_ads_a_label = Formatted_Label(self.right_adsorb_frame)
         k_ads_a_label.insert("insert", "k", "", "a", "subscript", "ads", "superscript")
