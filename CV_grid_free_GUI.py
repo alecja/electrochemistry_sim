@@ -1267,8 +1267,8 @@ class MyDialog(tkd.Dialog, object):
         param_dict['plot_T_F'] = bool(PLOT_T_F_DEF)
         param_dict['isotherm'] = self.isotherm.get()
 
-        # self.master.quit()
-        # self.master.destroy()
+        self.master.quit()
+        self.master.destroy()
         if self.run_adsorption.get() == 1:
             sim = CV_Simulator(param_dict)
             sim.run()
@@ -1277,7 +1277,6 @@ class MyDialog(tkd.Dialog, object):
             sim.run()
         
         self.deiconify()
-        self.master.focus()
 
 #Gamma_list = np.logspace(-15,3,109)
 #omega_list = np.sqrt(np.linspace(0.2, 2.2, 6) / (27.211 * mass * 2 * y_A * y_A))
