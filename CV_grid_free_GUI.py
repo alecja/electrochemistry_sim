@@ -15,12 +15,14 @@ try:
     import tkSimpleDialog as tkd
     from tkFileDialog import askopenfilename
     from tkMessageBox import showinfo
+    import tkFont
     IS_PYTHON2 = True
 except ImportError:
     import tkinter as tk
     import tkinter.simpledialog as tkd
     from tkinter.filedialog import askopenfilename
     from tkinter.messagebox import showinfo
+    import tkinter.font as tkFont
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -34,7 +36,6 @@ import platform
 IS_MAC = False
 if platform.system() == "Darwin":
     IS_MAC = True
-
 
 # matplotlib.rcParams.update({'font.size': 24})
 
@@ -122,8 +123,6 @@ class CV_No_Ads:
                 param_dict = {}
         elif param_dict != None and file != None:
             print('Given file and input dict, ignoring file')
-        else:
-            print('Running simulation from dict input')
         
         self.reorg = param_dict.get('reorg', REORG_DEF)
         self.Gamma = param_dict.get('gamma', GAMMA_DEF)
@@ -392,8 +391,6 @@ class CV_Simulator():
                 param_dict = {}
         elif param_dict != None and file != None:
             print('Given file and input dict, ignoring file')
-        else:
-            print('Running simulation from dict input')
         
         # Assign parameters from dict
         self.isotherm = param_dict.get('isotherm', ISOTHERM_DEF)
@@ -475,7 +472,7 @@ class CV_Simulator():
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
             self.ax.set_xlabel("V", fontsize=24)
-            self.ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})", fontsize=24)
+            self.ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})$", fontsize=24)
             self.ax.set_title("Simulated CV")
             self.ax.set_xlim(self.p_end * 27.211, self.p_start * 27.211)
             self.ax.set_ylim(-200, 200)
@@ -842,7 +839,7 @@ class CV_Simulator():
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
-            ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})", fontsize=24)
+            ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})$", fontsize=24)
             ax.set_title("Simulated CV")
             ax.set_xlim(self.p_start * 27.211, self.p_end * 27.211)
             ax.plot(self.p_list[::-1][1:] * 27.211, self.I + self.I_ads)
@@ -1173,14 +1170,17 @@ class MyDialog(tkd.Dialog, object):
             self.e6.grid_remove()
             self.gamma_label.set("")
             self.gamma_label.insert("insert", "k", "", "0", "subscript", "MHC", "superscript", "(.01s", "", "-1", "superscript", " - 10", "", "4", "superscript", "s", "", "-1", "superscript", "):")
+            self.gamma_in.delete(0, tk.END)
+            self.gamma_in.insert(0, '100')
         else:
             self.alpha_label.grid()
             self.e6.grid()
             self.reorg_label.grid_remove()
             self.reorg_in.grid_remove()
             self.gamma_label.set("")
-            self.gamma_label.insert("insert", "k", "", "0", "subscript", "BV", "superscript", "(.01s", "", "-1", "superscript", " - 10", "", "4", "superscript", "s", "", "-1", "superscript", "):")
-
+            self.gamma_label.insert("insert", "k", "", "0", "subscript", "BV", "superscript", "(.01s", "", "-1", "superscript", " - 10", "", "s", "", "-1", "superscript", "):")
+            self.gamma_in.delete(0, tk.END)
+            self.gamma_in.insert(0, '10')
 
     def show_help(self):
         help_window = tk.Toplevel()
@@ -1298,6 +1298,12 @@ if __name__ == "__main__":
         sim.run()
     else:
         root = tk.Tk()
+        default_font = tkFont.nametofont("TkDefaultFont")
+        default_font.configure(size=12)
+        default_font = tkFont.nametofont("TkTextFont")
+        default_font.configure(size=12)
+        default_font = tkFont.nametofont("TkFixedFont")
+        default_font.configure(size=12)
         root.withdraw()
         root.winfo_toplevel().title("Grid-free PyCV")
         d = MyDialog(root)
