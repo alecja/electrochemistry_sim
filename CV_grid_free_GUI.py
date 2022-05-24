@@ -1273,7 +1273,6 @@ class MyDialog(tkd.Dialog, object):
 
         self.master.quit()
         self.master.destroy()
-        self.update_idletasks()
         if self.run_adsorption.get() == 1:
             sim = CV_Simulator(param_dict)
             sim.run()
