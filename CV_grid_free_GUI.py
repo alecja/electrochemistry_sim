@@ -24,6 +24,12 @@ except ImportError:
 
 import matplotlib
 import matplotlib.pyplot as plt
+import platform
+
+IS_MAC = False
+if platform.system() == "Darwin":
+    IS_MAC = True
+
 
 # matplotlib.rcParams.update({'font.size': 24})
 
@@ -164,7 +170,7 @@ class CV_No_Ads:
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
             self.ax.set_xlabel("V", fontsize=24)
-            self.ax.set_ylabel("I", fontsize=24)
+            self.ax.set_ylabel(r"I/FAc_0", fontsize=24)
             self.ax.set_title("Simulated CV (no adsorption)")
             self.ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
             self.ax.set_ylim(-200, 200)
@@ -340,7 +346,7 @@ class CV_No_Ads:
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
-            ax.set_ylabel("I", fontsize=24)
+            ax.set_ylabel(r"I/FAc_0", fontsize=24)
             ax.set_title("Simulated CV (No adsorption)")
             ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
             ax.plot(self.P_list * 27.211, self.I)
@@ -467,7 +473,7 @@ class CV_Simulator():
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
             self.ax.set_xlabel("V", fontsize=24)
-            self.ax.set_ylabel("I", fontsize=24)
+            self.ax.set_ylabel(r"I/FAc_0", fontsize=24)
             self.ax.set_title("Simulated CV")
             self.ax.set_xlim(self.p_end * 27.211, self.p_start * 27.211)
             self.ax.set_ylim(-200, 200)
@@ -834,7 +840,7 @@ class CV_Simulator():
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
-            ax.set_ylabel("I", fontsize=24)
+            ax.set_ylabel(r"I/FAc_0", fontsize=24)
             ax.set_title("Simulated CV")
             ax.set_xlim(self.p_start * 27.211, self.p_end * 27.211)
             ax.plot(self.p_list[::-1][1:] * 27.211, self.I + self.I_ads)
@@ -860,18 +866,18 @@ class CV_Simulator():
 
 class Formatted_Label(tk.Text, object):
     def __init__(self, master):
-        super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"), pady=8)
+        super(Formatted_Label, self).__init__(master, borderwidth=0, background=master.cget("background"), pady=4)
         self['state'] = 'normal'
-        self.tag_configure("subscript", offset=-6)
+        self.tag_configure("subscript", offset=-4)
         self.tag_configure("subscript", font=('Serif', 8))
-        self.tag_configure("superscript", offset=6)
+        self.tag_configure("superscript", offset=4)
         self.tag_configure("superscript", font=('Serif', 8))
 
     def insert(self, *args):
         self['state'] = 'normal'
         super(Formatted_Label, self).insert(*args)
         self.configure(width=len(self.get("1.0", "end")) - 1)
-        self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]))
+        self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]) + 1 if IS_MAC else 0)
         self['state'] = 'disabled'
     
     def set(self, new):
