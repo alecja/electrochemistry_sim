@@ -26,6 +26,11 @@ import matplotlib
 import matplotlib.pyplot as plt
 import platform
 
+# try:
+#     plt.rcParams['text.usetex'] = True
+# except:
+#     print("Cannot load TeX")
+
 IS_MAC = False
 if platform.system() == "Darwin":
     IS_MAC = True
@@ -170,7 +175,7 @@ class CV_No_Ads:
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
             self.ax.set_xlabel("V", fontsize=24)
-            self.ax.set_ylabel(r"I/FAc_0", fontsize=24)
+            self.ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})$", fontsize=24)
             self.ax.set_title("Simulated CV (no adsorption)")
             self.ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
             self.ax.set_ylim(-200, 200)
@@ -346,15 +351,12 @@ class CV_No_Ads:
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
-            ax.set_ylabel(r"I/FAc_0", fontsize=24)
+            ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})$", fontsize=24)
             ax.set_title("Simulated CV (No adsorption)")
             ax.set_xlim(self.P_start * 27.211, self.P_end * 27.211)
             ax.plot(self.P_list * 27.211, self.I)
             ax.plot(self.P_list[::-1] * 27.211, self.I_rev)
-            if IS_PYTHON2:
-                plt.show(block=False)
-            else:
-                plt.show()
+            plt.show()
         
     
     def plot(self):
@@ -473,7 +475,7 @@ class CV_Simulator():
         if self.plot_T_F:
             self.fig, self.ax = plt.subplots()
             self.ax.set_xlabel("V", fontsize=24)
-            self.ax.set_ylabel(r"I/FAc_0", fontsize=24)
+            self.ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})", fontsize=24)
             self.ax.set_title("Simulated CV")
             self.ax.set_xlim(self.p_end * 27.211, self.p_start * 27.211)
             self.ax.set_ylim(-200, 200)
@@ -840,15 +842,11 @@ class CV_Simulator():
             plt.close()
             fig, ax = plt.subplots()
             ax.set_xlabel("V", fontsize=24)
-            ax.set_ylabel(r"I/FAc_0", fontsize=24)
+            ax.set_ylabel(r"$I/FAc_0 (cm^{-1}s^{-1})", fontsize=24)
             ax.set_title("Simulated CV")
             ax.set_xlim(self.p_start * 27.211, self.p_end * 27.211)
             ax.plot(self.p_list[::-1][1:] * 27.211, self.I + self.I_ads)
             ax.plot(self.p_list[1:] * 27.211, self.I_rev + self.I_ads_rev)
-            if IS_PYTHON2:
-                plt.show(block=False)
-            else:
-                plt.show()
             plt.show()
 
     def plot(self):
@@ -1275,14 +1273,13 @@ class MyDialog(tkd.Dialog, object):
 
         self.master.quit()
         self.master.destroy()
+        self.update_idletasks()
         if self.run_adsorption.get() == 1:
             sim = CV_Simulator(param_dict)
             sim.run()
         else:
             sim = CV_No_Ads(param_dict)
             sim.run()
-        
-        self.deiconify()
 
 #Gamma_list = np.logspace(-15,3,109)
 #omega_list = np.sqrt(np.linspace(0.2, 2.2, 6) / (27.211 * mass * 2 * y_A * y_A))
