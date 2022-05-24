@@ -1073,7 +1073,7 @@ class MyDialog(tkd.Dialog, object):
         file_button = tk.Button(master, text='Read/run from file', command=self.open_file)
 
         # Help button
-        help_button = tk.Button(master, text="Help", command=self.show_help)
+        # help_button = tk.Button(master, text="Help", command=self.show_help)
 
         # Plot?
         # self.e19 = tk.Checkbutton(master, variable=self.should_plot, justify='left')
@@ -1083,7 +1083,7 @@ class MyDialog(tkd.Dialog, object):
         # tk.Label(master, text="Plot?:").grid(column=1, row=3, sticky="E")
         # self.e19.grid(row=3, column=2, sticky="W")
         file_button.grid(row=4, column=1, columnspan=2)
-        help_button.grid(row=5, column=1, columnspan=2)
+        # help_button.grid(row=5, column=1, columnspan=2)
 
         for child in master.winfo_children():
             child.grid_configure(pady=5, padx=15)
