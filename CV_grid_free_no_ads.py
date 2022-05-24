@@ -6,7 +6,7 @@ import scipy
 
 class CV_No_Ads:
     def __init__(self, plot_T_F):
-        self.MH = True
+        self.MH = False
         reorg = 1.0
         self.mass = 2000
         self.y_A = 10
