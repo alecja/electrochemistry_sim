@@ -42,6 +42,9 @@ if platform.system() == "Darwin":
 # Default values
 # Frumkin param. defaults
 # Range for each should be (-0.002 to 0.002)
+# FIXME: G_FRUM_A_DEF should be unitless and multiplied by KT_DEF
+# i.e. user enter $g_{a}$ = 1 and G_FRUM_A_DEF should be $g_{a}$ * KT_DEF
+# G_FRUM_A_DEF = G_A_TEMP * KT_DEF, will need to be instantiated after KT_DEF now
 G_FRUM_A_DEF = 0
 G_FRUM_B_DEF = 0
 # Temkin param defaults (not yet supported)
@@ -406,6 +409,7 @@ class CV_Simulator():
         self.time_steps = param_dict.get('time_steps', TIME_STEPS_DEF)
         self.gamma_s = param_dict.get('gamma_s', GAMMA_S_DEF)
         self.gamma_ads = param_dict.get('gamma_ads', GAMMA_ADS_DEF)
+        #self.k_ads = param_dict.get('k_ads', K_ADS_DEF)
         self.k_ads_a = param_dict.get('k_ads_a', K_ADS_A_DEF)
         self.k_ads_b = param_dict.get('k_ads_b', K_ADS_B_DEF)
         self.k_des_a = param_dict.get('k_des_a', K_DES_A_DEF)
@@ -1108,6 +1112,7 @@ class MyDialog(tkd.Dialog, object):
             self.isotherm_param_label_a.insert("insert", "g", "", "a", "subscript", "(-.002 - .002)", "")
             self.isotherm_param_label_b.set("")
             self.isotherm_param_label_b.insert("insert", "g", "", "b", "subscript", "(-.002 - .002)", "")
+
             self.e1['state'] = 'normal'
             self.e2['state'] = 'normal'
             self.e1.insert(0, G_FRUM_A_DEF)
@@ -1201,29 +1206,33 @@ class MyDialog(tkd.Dialog, object):
         parameters_title.pack()
         parameters_body = tk.Text(help_window, wrap=tk.WORD, spacing3=15, height=16, padx=10)
         parameters_body.tag_configure("subscript", offset=-4, font=('Serif', 6))
-        parameters_body.insert("insert", "- Isotherm: adsorption isotherm model to use in simulation. Langmuir has no parameters. Frumkin and Temkin both have two. For more information on adsorption isotherms, see https://en.wikipedia.org/wiki/Adsorption#Langmuir. For more information on available isotherms, see above paper.\n")
-        parameters_body.insert("insert", u"- \u03A9: Omega description here\n")
-        parameters_body.insert("insert", u"- \u0393: Gamma description here\n")
+        parameters_body.insert("insert", "- Isotherm: adsorption isotherm model to use in simulation. Langmuir has no additional parameters, Frumkin has two. For more information on adsorption isotherms, see https://en.wikipedia.org/wiki/Adsorption#Langmuir. For more information on available isotherms, see above paper.\n")
+        #FIXME: unicode character should now be $\lambda$
+        parameters_body.insert("insert", u"- \u03A9: Reorganization energy for Marcus-Hush-Chidsey (MHC) dynamics\n")
+        parameters_body.insert("insert", u"- \u0393: Standard rate constant for either Butler-Volmer (BV) or Marcus-Hush-Chidsey (MHC) dynamics\n")
         parameters_body.insert("insert", u"- \u03B1: Charge transfer coefficient for Butler-Volmer (BV) dynamics\n")
-        parameters_body.insert("insert", "- scan rate: Rate at which simulated potential is ramped\n")
-        parameters_body.insert("insert", "- time steps: Number of time steps in the forward and backward direction. Should be N + 1, where N is the desired number of steps (due to the structure of the code)\n")
-        parameters_body.insert("insert", u"- \u0393\u209B: Saturated surface concentration\n")
+        #FIXME: scan rate should be unicode for $\nu$
+        parameters_body.insert("insert", "- scan rate: Rate at which simulated potential is ramped, in Volts per second\n")
+        parameters_body.insert("insert", "- time steps: Number of time steps in the forward and backward direction.\n")
+        #FIXME: UNITS should be mol/cm^{2}, with correct formatting
+        parameters_body.insert("insert", u"- \u0393\u209B: Saturated surface concentration in UNITS\n")
+        #FIXME: Gamma ads should be $k_{0}^{ads}$
         parameters_body.insert("insert", u"- \u0393")
         parameters_body.insert("insert", "ads", "subscript")
-        parameters_body.insert("insert", ": Coupling for adsorbed electron transfer\n")
+        parameters_body.insert("insert", ": Standard rate constant for adsorbed electron transfer\n")
         parameters_body.insert("insert", "- k")
         parameters_body.insert("insert", "ads", "subscript")
         parameters_body.insert("insert", "/k")
         parameters_body.insert("insert", "des", "subscript")
-        parameters_body.insert("insert", ": Rate constant of adsorption/desorption of species a/b\n")
-        parameters_body.insert("insert", "- p", "", "start", "subscript", "/p", "", "end", "subscript", ": Range of driving voltages\n")
+        parameters_body.insert("insert", ": Rate constant of adsorption/desorption of species, in inverse seconds a/b\n")
+        parameters_body.insert("insert", "- V", "", "start", "subscript", "/V", "", "end", "subscript", ": Range of driving voltages\n")
         parameters_body.insert("insert", "- MHC/BV: Expression to use for the electron transfer rate constant (Marcus-Hush-Chidsey or Butler-Volmer)\n")
         parameters_body.pack()
 
         from_file_title = tk.Label(help_window, text='Running from file')
         from_file_title.pack()
         from_file_body = tk.Text(help_window, wrap=tk.WORD, padx=10)
-        from_file_body.insert("insert", "To run simulation from file, use gui and select \"read/run from file\" or run script from command line with --file flag. File should be formatted as python dictionary.")
+        from_file_body.insert("insert", "To run simulation from file, use gui and select \"read/run from file\" or run script from command line with --file flag. File should be formatted as python dictionary, and contain all the parameters listed above.")
         from_file_body.pack()
 
     def ok(self, event=None):
