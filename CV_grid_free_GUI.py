@@ -2,7 +2,8 @@ import os, sys, math, time
 import numpy as np
 import scipy.integrate as integrate
 import scipy
-import socket, resource, ast
+import ast
+# import socket, resource
 import argparse
 import warnings
 
@@ -876,7 +877,7 @@ class Formatted_Label(tk.Text, object):
         self['state'] = 'normal'
         super(Formatted_Label, self).insert(*args)
         self.configure(width=len(self.get("1.0", "end")) - 1)
-        self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]) + 1 if IS_MAC else 0)
+        self.configure(height=sum([1 if x == '\n' else 0 for x in self.get("1.0", "end")]) + 2 if IS_MAC else 1)
         self['state'] = 'disabled'
     
     def set(self, new):
@@ -902,6 +903,7 @@ class MyDialog(tkd.Dialog, object):
         self.isotherm = tk.StringVar()
         self.use_MH = tk.IntVar()
         self.run_adsorption = tk.IntVar()
+        self.complex_rates = tk.IntVar()
 
         # Left side
         left_column = tk.Frame(master)
@@ -982,22 +984,25 @@ class MyDialog(tkd.Dialog, object):
         self.right_adsorb_frame.pack(fill='x')
         gamma_s_label = Formatted_Label(self.right_adsorb_frame)
         gamma_s_label.insert('insert', u'\u0393', '', 's', 'subscript', "(1/cm", "", "2", "superscript", "):")
-        gamma_s_label.grid(row=1, column=0)
+        gamma_s_label.grid(row=2, column=0)
         gamma_ads_label = Formatted_Label(self.right_adsorb_frame)
         gamma_ads_label.insert("insert", "k", "", "0", "subscript", "(s", "", "-1", "superscript", "):")
-        gamma_ads_label.grid(row=2, column=0)
-        k_ads_a_label = Formatted_Label(self.right_adsorb_frame)
-        k_ads_a_label.insert("insert", "k", "", "a", "subscript", "ads", "superscript")
-        k_ads_a_label.grid(row=3, column=0)
-        k_ads_b_label = Formatted_Label(self.right_adsorb_frame)
-        k_ads_b_label.insert("insert", "k", "", "b", "subscript", "ads", "superscript")
-        k_ads_b_label.grid(row=4, column=0)
-        k_des_a_label = Formatted_Label(self.right_adsorb_frame)
-        k_des_a_label.insert("insert", "k", "", "a", "subscript", "des", "superscript")
-        k_des_a_label.grid(row=5, column=0)
-        k_des_b_label = Formatted_Label(self.right_adsorb_frame)
-        k_des_b_label.insert("insert", "k", "", "b", "subscript", "des", "superscript")
-        k_des_b_label.grid(row=6, column=0)
+        gamma_ads_label.grid(row=3, column=0)
+        k_label = Formatted_Label(self.right_adsorb_frame)
+        k_label.insert("insert", "k")
+        k_label.grid(row=4, column=0)
+        self.k_ads_a_label = Formatted_Label(self.right_adsorb_frame)
+        self.k_ads_a_label.insert("insert", "k", "", "a", "subscript", "ads", "superscript")
+        self.k_ads_a_label.grid(row=5, column=0)
+        self.k_ads_b_label = Formatted_Label(self.right_adsorb_frame)
+        self.k_ads_b_label.insert("insert", "k", "", "b", "subscript", "ads", "superscript")
+        self.k_ads_b_label.grid(row=6, column=0)
+        self.k_des_a_label = Formatted_Label(self.right_adsorb_frame)
+        self.k_des_a_label.insert("insert", "k", "", "a", "subscript", "des", "superscript")
+        self.k_des_a_label.grid(row=7, column=0)
+        self.k_des_b_label = Formatted_Label(self.right_adsorb_frame)
+        self.k_des_b_label.insert("insert", "k", "", "b", "subscript", "des", "superscript")
+        self.k_des_b_label.grid(row=8, column=0)
 
         self.e9 = tk.Entry(self.right_adsorb_frame)
         self.e9.insert(1, GAMMA_S_DEF)
@@ -1011,13 +1016,16 @@ class MyDialog(tkd.Dialog, object):
         self.e14.insert(1, K_DES_A_DEF)
         self.e15 = tk.Entry(self.right_adsorb_frame)
         self.e15.insert(1, K_DES_B_DEF)
+        self.e16 = tk.Entry(self.right_adsorb_frame)
+        self.e16.insert(1, K_ADS_A_DEF)
         
-        self.e9.grid(row=1, column=1)
-        self.e10.grid(row=2, column=1)
-        self.e12.grid(row=3, column=1)
-        self.e13.grid(row=4, column=1)
-        self.e14.grid(row=5, column=1)
-        self.e15.grid(row=6, column=1)
+        self.e9.grid(row=2, column=1)
+        self.e10.grid(row=3, column=1)
+        self.e12.grid(row=5, column=1)
+        self.e13.grid(row=6, column=1)
+        self.e14.grid(row=7, column=1)
+        self.e15.grid(row=8, column=1)
+        self.e16.grid(row=4, column=1)
 
          # Isotherm box frame
         isotherm_padder = tk.Frame(right_column_padder, pady=10)
@@ -1057,6 +1065,15 @@ class MyDialog(tkd.Dialog, object):
         isotherm_frame.pack(fill='x')
         isotherm_padder.grid(row=1, sticky='new')
         isotherm_background.pack(fill='both')
+
+        # Different k toggle
+        complex_rates_label = tk.Label(self.right_adsorb_frame, text="Complex rates?: ")
+        complex_rates_label.grid(row=1)
+        complex_rates_label.grid_configure(pady=20)
+        self.complex_rates_toggle = tk.Checkbutton(self.right_adsorb_frame, variable=self.complex_rates, justify='left', command=self.handle_complex_rates_toggle)
+        self.complex_rates_toggle.grid(row=1, column=1)
+        self.complex_rates_toggle.grid_configure(pady=20)
+        self.handle_complex_rates_toggle()
 
         # Adsorption toggle
         use_ads_label = tk.Label(self.right_adsorb_frame, text="Use adsorption?:")
@@ -1143,6 +1160,8 @@ class MyDialog(tkd.Dialog, object):
             self.e13['state'] = 'disabled'
             self.e14['state'] = 'disabled'
             self.e15['state'] = 'disabled'
+            self.e16['state'] = 'disabled'
+            self.complex_rates_toggle['state'] = 'disabled'
 
             self.r1['state'] = 'disabled'
             self.r2['state'] = 'disabled'
@@ -1157,6 +1176,8 @@ class MyDialog(tkd.Dialog, object):
             self.e13['state'] = 'normal'
             self.e14['state'] = 'normal'
             self.e15['state'] = 'normal'
+            self.e16['state'] = 'normal'
+            self.complex_rates_toggle['state'] = 'normal'
             
             self.r1['state'] = 'normal'
             self.r2['state'] = 'normal'
@@ -1166,6 +1187,42 @@ class MyDialog(tkd.Dialog, object):
             self.gamma_in.delete(0, tk.END)
             self.gamma_in.insert(0, '0')
             self.gamma_in['state'] = 'disabled'
+        
+        self.handle_complex_rates_toggle()
+    
+    def handle_complex_rates_toggle(self):
+        if self.complex_rates.get() == 0:
+            self.e12['state'] = 'disabled'
+            self.e13['state'] = 'disabled'
+            self.e14['state'] = 'disabled'
+            self.e15['state'] = 'disabled'
+            self.e12.grid_remove()
+            self.e13.grid_remove()
+            self.e14.grid_remove()
+            self.e15.grid_remove()
+            self.k_ads_a_label.grid_remove()
+            self.k_ads_b_label.grid_remove()
+            self.k_des_a_label.grid_remove()
+            self.k_des_b_label.grid_remove()
+            if self.run_adsorption.get() == 1:
+                self.e16['state'] = 'normal'
+            
+        else:
+            self.e16['state'] = 'disabled'
+            if self.run_adsorption.get() == 1:
+                self.e12['state'] = 'normal'
+                self.e13['state'] = 'normal'
+                self.e14['state'] = 'normal'
+                self.e15['state'] = 'normal'
+                self.e12.grid()
+                self.e13.grid()
+                self.e14.grid()
+                self.e15.grid()
+                self.k_ads_a_label.grid()
+                self.k_ads_b_label.grid()
+                self.k_des_a_label.grid()
+                self.k_des_b_label.grid()
+
     
     def handle_rate_select(self, expression):
         if expression == "MHC":
@@ -1259,7 +1316,7 @@ class MyDialog(tkd.Dialog, object):
             param_dict['char'] = float(self.e2.get())
         
         # Optionally set parameters for rate expression
-        if self.use_MH.get():
+        if self.use_MH.get() == 1:
             param_dict['reorg'] = float(self.reorg_in.get())
         else:
             param_dict['alpha'] = float(self.e6.get())
@@ -1270,10 +1327,17 @@ class MyDialog(tkd.Dialog, object):
         param_dict['time_steps'] = int(self.e8.get())
         param_dict['gamma_s'] = float(self.e9.get())
         param_dict['gamma_ads'] = float(self.e10.get())
-        param_dict['k_ads_a'] = float(self.e12.get())
-        param_dict['k_ads_b'] = float(self.e13.get())
-        param_dict['k_des_a'] = float(self.e14.get())
-        param_dict['k_des_b'] = float(self.e15.get())
+        if self.complex_rates.get() == 1:
+            param_dict['k_ads_a'] = float(self.e12.get())
+            param_dict['k_ads_b'] = float(self.e13.get())
+            param_dict['k_des_a'] = float(self.e14.get())
+            param_dict['k_des_b'] = float(self.e15.get())
+        else:
+            param_dict['k_ads_a'] = float(self.e16.get())
+            param_dict['k_ads_b'] = float(self.e16.get())
+            param_dict['k_des_a'] = float(self.e16.get())
+            param_dict['k_des_b'] = float(self.e16.get())
+
         param_dict['v_start'] = float(self.v_start_in.get())
         param_dict['v_end'] = float(self.v_end_in.get())
         param_dict['mh'] = bool(int(self.use_MH.get()))
